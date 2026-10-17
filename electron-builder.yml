@@ -8,12 +8,13 @@ files:
   - dist/renderer/**/*
   - package.json
 asar: true
+publish: null
 asarUnpack: []
 mac:
   category: public.app-category.photography
   identity: null
   target:
-    - target: zip
+    - target: dir
       arch: [arm64]
   extraResources:
     - from: resources/ffmpeg/darwin-${arch}/ffmpeg
