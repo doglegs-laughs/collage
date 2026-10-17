@@ -148,7 +148,7 @@ function drawText(ctx: Ctx2D, el: TextEl, W: number, H: number) {
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
     const ls = el.letterSpacing * fontPx;
-    const native = 'letterSpacing' in ctx;
+    const native: boolean = 'letterSpacing' in (ctx as object);
     if (native) (ctx as CanvasRenderingContext2D).letterSpacing = `${ls}px`;
     if (el.shadow) {
       ctx.shadowColor = 'rgba(0,0,0,0.45)';
@@ -158,7 +158,7 @@ function drawText(ctx: Ctx2D, el: TextEl, W: number, H: number) {
     const measure = (line: string) => (native || !ls ? ctx.measureText(line).width : [...line].reduce((s, ch) => s + ctx.measureText(ch).width + ls, 0));
     textLines(el).forEach((line, i) => {
       // Trailing letter-spacing is not visible ink; remove it so centred text is optically centred.
-      const w = measure(line) - (ls && native ? ls : ls ? ls : 0);
+      const w = measure(line) - ls;
       const x = el.align === 'left' ? e.outer.x : el.align === 'right' ? e.outer.x + e.outer.w - w : e.outer.x + (e.outer.w - w) / 2;
       const y = e.outer.y + i * fontPx * LINE_HEIGHT;
       if (native || !ls) ctx.fillText(line, x, y);
