@@ -11,7 +11,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(await readFile(path.join(root, 'node_modules/ffmpeg-static/package.json'), 'utf8'));
 const release = process.env.FFMPEG_BINARY_RELEASE || pkg['ffmpeg-static']['binary-release-tag'];
 const base = process.env.FFMPEG_BINARIES_URL || 'https://github.com/eugeneware/ffmpeg-static/releases/download';
-const archs = ['arm64', 'x64'];
+const archs = ['arm64'];
 
 async function download(arch) {
   const dir = path.join(root, 'resources/ffmpeg', `darwin-${arch}`);

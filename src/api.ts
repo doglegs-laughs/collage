@@ -3,8 +3,12 @@ export interface VideoJob {
   frames: Uint8Array[];
   durations: number[];
   transition: 'none' | 'crossfade';
+  /** Per-boundary override (length = frames - 1). 'slide' pans both pages together. */
+  transitions?: ('none' | 'crossfade' | 'slide')[];
   transitionSeconds: number;
   kenBurns: boolean;
+  /** Per-page Ken Burns switch (length = frames); overrides `kenBurns` when present. */
+  kenBurnsPages?: boolean[];
   audioPath?: string;
   fps: number;
 }

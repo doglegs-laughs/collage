@@ -58,7 +58,8 @@ export function makeStory(photos: Photo[], o: AutofillOpts): Page[] {
     }
   }
 
-  const overview = o.style === 'clean' && photos.length - i >= 6;
+  // Only when enough photos remain for real pages before the contents slide (7 photos + title must not collapse to 2 pages).
+  const overview = o.style === 'clean' && photos.length - i >= 9;
   const end = overview ? photos.length - 6 : photos.length;
   const usePano = (o.style === 'clean' || o.style === 'carousel') && A < 1.3;
   const candidates = templatesForStyle(o.style);

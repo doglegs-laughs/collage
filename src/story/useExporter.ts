@@ -1,0 +1,100 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api } from '../api';
+import { useToast } from '../ui/Toast';
+import { audioDuration, exportImages, exportVideo, isAbort } from './exportStory';
+import type { Story } from './model';
+
+export type ExportJob = { kind: 'images' | 'video'; label: string; fraction: number | null };
+export type ExportDone = { message: string; reveal: string };
+export type VideoRequest = { width: number; pageSeconds: number; fitToMusic: boolean };
+
+/** Runs image/video exports with progress, cancel and a result message. */
+export function useExporter(getStory: () => Story) {
+  const toast = useToast();
+  const [job, setJob] = useState<ExportJob | null>(null);
+  const [done, setDone] = useState<ExportDone | null>(null);
+  const abort = useRef<AbortController | null>(null);
+  const encoding = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
+
+  const fail = useCallback((e: unknown) => {
+    if (isAbort(e)) return;
+    toast(e instanceof Error ? e.message : 'The export did not finish.', 'error');
+  }, [toast]);
+
+  const finish = useCallback(() => {
+    abort.current = null;
+    encoding.current = false;
+    if (mounted.current) setJob(null);
+  }, []);
+
+  const images = useCallback(async (width: number) => {
+    if (abort.current) return;
+    setDone(null);
+    try {
+      const folder = await api.chooseFolder();
+      if (!folder) return;
+      const ctl = new AbortController();
+      abort.current = ctl;
+      const story = getStory();
+      setJob({ kind: 'images', label: 'Exporting images', fraction: 0 });
+      const r = await exportImages(story, {
+        folder, width, signal: ctl.signal,
+        onProgress: (d, t) => setJob({ kind: 'images', label: `Exporting ${Math.min(d + 1, t)} of ${t}`, fraction: d / t }),
+      });
+      const message = `Saved ${r.files.length} image${r.files.length === 1 ? '' : 's'} to ${folder.split(/[\\/]/).pop()}`;
+      setDone({ message, reveal: r.files[0] ?? folder });
+      toast(message, 'success');
+    } catch (e) {
+      fail(e);
+    } finally {
+      finish();
+    }
+  }, [getStory, toast, fail, finish]);
+
+  const video = useCallback(async (req: VideoRequest) => {
+    if (abort.current) return;
+    setDone(null);
+    const ctl = new AbortController();
+    abort.current = ctl;
+    const story = getStory();
+    let off = () => {};
+    try {
+      setJob({ kind: 'video', label: 'Preparing', fraction: null });
+      let music: number | null = null;
+      if (req.fitToMusic && story.video.audioPath) {
+        music = await audioDuration(story.video.audioPath);
+        if (music === null) toast('Could not read the music length, so pages keep their own durations.', 'info');
+      }
+      off = api.onVideoProgress((f) => {
+        if (encoding.current) setJob({ kind: 'video', label: `Encoding video ${Math.round(f * 100)}%`, fraction: f });
+      });
+      const total = story.pages.length;
+      const path = await exportVideo(story, {
+        width: req.width, pageSeconds: req.pageSeconds, fitToMusicSeconds: music, signal: ctl.signal,
+        onProgress: (d, t) => {
+          if (d >= t) { encoding.current = true; setJob({ kind: 'video', label: 'Encoding video', fraction: 0 }); }
+          else setJob({ kind: 'video', label: `Rendering page ${d + 1} of ${total}`, fraction: null });
+        },
+      });
+      if (!path) return;
+      const message = `Video saved: ${path.split(/[\\/]/).pop()}`;
+      setDone({ message, reveal: path });
+      toast(message, 'success');
+    } catch (e) {
+      fail(e);
+    } finally {
+      off();
+      finish();
+    }
+  }, [getStory, toast, fail, finish]);
+
+  const cancel = useCallback(() => {
+    abort.current?.abort();
+    if (encoding.current) void api.cancelVideo().catch(() => {});
+  }, []);
+
+  return { job, done, clearDone: () => setDone(null), images, video, cancel };
+}
+export type Exporter = ReturnType<typeof useExporter>;
