@@ -1,5 +1,5 @@
 import { api } from '../api';
-import { drawSmooth } from './canvas';
+import { readOrientedSize } from './imageHeader';
 
 export type Photo = {
   id: string;
@@ -61,64 +61,89 @@ async function sourceBlob(photo: Photo): Promise<Blob> {
   return new Blob([(await api.readFile(photo.path)) as BlobPart], { type: 'image/jpeg' });
 }
 
+const HEAD_BYTES = 262144;
+const IMPORT_CONCURRENCY = 4;
+
 async function describe(blob: Blob, name: string, path?: string, file?: File): Promise<Photo> {
-  const bytes = await blob.arrayBuffer();
-  const bitmap = await decode(blob);
-  try {
-    return { id: await contentId(bytes), name, path, file, width: bitmap.width, height: bitmap.height };
-  } finally {
+  const [bytes, head] = await Promise.all([blob.arrayBuffer(), blob.slice(0, HEAD_BYTES).arrayBuffer()]);
+  let size = readOrientedSize(new Uint8Array(head));
+  if (!size) {
+    const bitmap = await decode(blob);
+    size = { width: bitmap.width, height: bitmap.height };
     bitmap.close();
   }
+  return { id: await contentId(bytes), name, path, file, width: size.width, height: size.height };
 }
 
-export async function importFromFiles(files: File[]): Promise<ImportResult> {
-  const result: ImportResult = { photos: [], failed: [] };
-  for (const file of files.filter(isImageFile)) {
-    try {
-      const path = api.pathForFile(file) || undefined;
-      const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
-      const convert = isHeicBytes(head) || isTiffBytes(head);
-      if (convert && !path) throw new Error('HEIC and TIFF photos can only be opened in the desktop app.');
-      const blob = convert && path ? new Blob([(await api.readFile(path)) as BlobPart], { type: 'image/jpeg' }) : file;
-      const photo = await describe(blob, file.name, path, file);
-      if (convert) delete photo.file;
-      result.photos.push(photo);
-    } catch (error) {
-      result.failed.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });
+/** Run `fn` over items with at most `limit` in flight; results keep input order. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
     }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+async function collect(items: { name: string; run: () => Promise<Photo> }[]): Promise<ImportResult> {
+  const settled = await mapLimit(items, IMPORT_CONCURRENCY, async (item) => {
+    try {
+      return { photo: await item.run(), failed: undefined };
+    } catch (error) {
+      return { photo: undefined, failed: { name: item.name, error: errorText(error) } };
+    }
+  });
+  const result: ImportResult = { photos: [], failed: [] };
+  for (const s of settled) {
+    if (s.photo) result.photos.push(s.photo);
+    else if (s.failed) result.failed.push(s.failed);
   }
   return result;
 }
 
-export async function importFromPaths(paths: string[]): Promise<ImportResult> {
-  const result: ImportResult = { photos: [], failed: [] };
-  for (const path of paths) {
-    const name = baseName(path);
-    try {
-      result.photos.push(await describe(new Blob([(await api.readFile(path)) as BlobPart]), name, path));
-    } catch (error) {
-      result.failed.push({ name, error: error instanceof Error ? error.message : String(error) });
-    }
-  }
-  return result;
+export function importFromFiles(files: File[]): Promise<ImportResult> {
+  return collect(
+    files.filter(isImageFile).map((file) => ({
+      name: file.name,
+      run: async () => {
+        const path = api.pathForFile(file) || undefined;
+        const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+        const convert = isHeicBytes(head) || isTiffBytes(head);
+        if (convert && !path) throw new Error('HEIC and TIFF photos can only be opened in the desktop app.');
+        const blob = convert && path ? new Blob([(await api.readFile(path)) as BlobPart], { type: 'image/jpeg' }) : file;
+        const photo = await describe(blob, file.name, path, file);
+        if (convert) delete photo.file;
+        return photo;
+      },
+    })),
+  );
+}
+
+export function importFromPaths(paths: string[]): Promise<ImportResult> {
+  return collect(
+    paths.map((path) => ({
+      name: baseName(path),
+      run: async () => describe(new Blob([(await api.readFile(path)) as BlobPart]), baseName(path), path),
+    })),
+  );
 }
 
 /* Preview bitmaps: bounded LRU, long edge <= PREVIEW_EDGE. */
 const previews = new Map<string, ImageBitmap>();
 const pending = new Map<string, Promise<ImageBitmap>>();
 
-async function downscale(full: ImageBitmap, edge: number): Promise<ImageBitmap> {
-  const long = Math.max(full.width, full.height);
-  if (long <= edge) return full;
-  const k = edge / long;
-  const w = Math.max(1, Math.round(full.width * k));
-  const h = Math.max(1, Math.round(full.height * k));
-  const canvas = Object.assign(document.createElement('canvas'), { width: w, height: h });
-  drawSmooth(canvas.getContext('2d')!, full, { left: 0, top: 0, w: full.width, h: full.height }, 0, 0, w, h);
-  full.close();
-  const out = await createImageBitmap(canvas);
-  canvas.width = canvas.height = 0;
-  return out;
+/** Oriented bitmap at most `edge` on the long edge, decoded straight to that size (never upscaled). */
+async function decodeAtEdge(photo: Photo, edge: number): Promise<ImageBitmap> {
+  const blob = await sourceBlob(photo);
+  const size = sizeForEdge(photo.width, photo.height, edge);
+  if (size.width === photo.width && size.height === photo.height) return decode(blob);
+  return createImageBitmap(blob, { resizeWidth: size.width, resizeHeight: size.height, resizeQuality: 'high', imageOrientation: 'from-image' });
 }
 
 /** Bitmap for on-screen drawing; do not close it, the cache owns it. Its size may be smaller than photo.width x height. */
@@ -132,7 +157,7 @@ export function getPreviewBitmap(photo: Photo): Promise<ImageBitmap> {
   let job = pending.get(photo.id);
   if (!job) {
     job = (async () => {
-      const bitmap = await downscale(await decode(await sourceBlob(photo)), PREVIEW_EDGE);
+      const bitmap = await decodeAtEdge(photo, PREVIEW_EDGE);
       previews.set(photo.id, bitmap);
       while (previews.size > CACHE_LIMIT) {
         const [oldest] = previews.keys();
@@ -160,12 +185,7 @@ export function sizeForEdge(width: number, height: number, maxEdge: number): { w
 }
 
 /** Oriented bitmap whose long edge is at most `maxEdge` px (decoded straight to that size, so a big original is never held in full). The caller must close() it. */
-export async function getBitmapForSize(photo: Photo, maxEdge: number): Promise<ImageBitmap> {
-  const blob = await sourceBlob(photo);
-  const size = sizeForEdge(photo.width, photo.height, maxEdge);
-  if (size.width === photo.width && size.height === photo.height) return decode(blob);
-  return createImageBitmap(blob, { resizeWidth: size.width, resizeHeight: size.height, resizeQuality: 'high', imageOrientation: 'from-image' });
-}
+export const getBitmapForSize = decodeAtEdge;
 
 /* Thumbnails: long edge 240, kept as object URLs for the life of the page. */
 const thumbs = new Map<string, Promise<string>>();
@@ -174,8 +194,7 @@ export function getThumbnailUrl(photo: Photo): Promise<string> {
   let job = thumbs.get(photo.id);
   if (!job) {
     job = (async () => {
-      const full = await decode(await sourceBlob(photo));
-      const bitmap = await downscale(full, THUMB_EDGE);
+      const bitmap = await decodeAtEdge(photo, THUMB_EDGE);
       const canvas = Object.assign(document.createElement('canvas'), { width: bitmap.width, height: bitmap.height });
       canvas.getContext('2d')!.drawImage(bitmap, 0, 0);
       bitmap.close();
