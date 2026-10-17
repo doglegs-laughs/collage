@@ -90,14 +90,22 @@ function clampCenter(c: Ctx, cx: number, cy: number, w: number, h: number, rot: 
 const WHITE = '#ffffff';
 type Built = { pages: El[][]; bg?: string };
 
-function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: number, o: { font: TextEl['font']; weight: TextEl['weight']; color: string; ls: number; upper: boolean; shadow: boolean; maxFu: number; maxChars: number }): TextEl[] {
-  const lines = breakLines(title, o.maxChars);
+const ADVANCE: Record<TextEl['font'], number> = { display: 0.58, displaySans: 0.56, serif: 0.55, sans: 0.54, mono: 0.6 };
+
+/** Large title sized so the longest line spans ~80% of the page width, clamped to 5%..13% of page height. */
+function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: number, o: { font: TextEl['font']; weight: TextEl['weight']; color: string; ls: number; upper: boolean; shadow: boolean }): TextEl[] {
+  const adv = ADVANCE[o.font] * (o.upper ? 1 : 0.8) + o.ls;
+  const minFu = 0.05 * c.H;
+  const maxFu = 0.13 * c.H;
+  const flat = title.replace(/\s+/g, ' ').trim();
+  const single = 0.8 / (Math.max(1, flat.length) * adv);
+  const lines = single >= minFu || flat.includes('\n') === false && !/\s/.test(flat) ? [flat] : breakLines(title, Math.max(4, Math.floor(0.8 / (minFu * adv))));
   const longest = Math.max(1, ...lines.map((l) => l.length));
-  const fu = Math.min(o.maxFu, 0.86 / (longest * (o.upper ? 0.78 : 0.6) + longest * o.ls));
-  const out = [textEl(c, { x: 0.07, y, w: 0.86, h: lines.length * fu * 1.25 }, fu, { text: lines.join('\n'), font: o.font, weight: o.weight, color: o.color, letterSpacing: o.ls, uppercase: o.upper, shadow: o.shadow, align: 'center' })];
+  const fu = clampN(0.8 / (longest * adv), minFu, maxFu);
+  const out = [textEl(c, { x: 0.05, y, w: 0.9, h: lines.length * fu * 1.25 }, fu, { text: lines.join('\n'), font: o.font, weight: o.weight, color: o.color, letterSpacing: o.ls, uppercase: o.upper, shadow: o.shadow, align: 'center' })];
   if (subtitle) {
-    const sfu = Math.max(0.014, fu * 0.28);
-    out.push(textEl(c, { x: 0.07, y: y + lines.length * fu * 1.25 + sfu * 0.6, w: 0.86, h: sfu * 1.4 }, sfu, { text: subtitle, font: 'displaySans', weight: 300, color: o.color, letterSpacing: 0.3, uppercase: true, shadow: o.shadow, align: 'center' }));
+    const sfu = 0.022 * c.H;
+    out.push(textEl(c, { x: 0.05, y: y + lines.length * fu * 1.25 + sfu * 0.5, w: 0.9, h: sfu * 1.4 }, sfu, { text: subtitle, font: 'displaySans', weight: 300, color: o.color, letterSpacing: 0.3, uppercase: true, shadow: o.shadow, align: 'center' }));
   }
   return out;
 }
@@ -105,7 +113,7 @@ function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: numb
 const buildCover = (sans: boolean) => (c: Ctx, [p]: Photo[]): Built => {
   const els: El[] = [photoEl(c, p, { x: 0, y: 0, w: 1, h: c.H })];
   if (c.opts.title) {
-    els.push(...titleBlock(c, c.opts.title, c.opts.subtitle, 0.09, { font: sans ? 'displaySans' : 'display', weight: sans ? 300 : 400, color: '#ffffff', ls: sans ? 0.25 : 0.18, upper: true, shadow: true, maxFu: 0.085, maxChars: 14 }));
+    els.push(...titleBlock(c, c.opts.title, c.opts.subtitle, 0.09 * c.H, { font: sans ? 'displaySans' : 'display', weight: sans ? 300 : 400, color: '#ffffff', ls: sans ? 0.25 : 0.18, upper: true, shadow: true }));
   }
   return { pages: [els] };
 };
@@ -118,7 +126,7 @@ function buildTitleCard(c: Ctx, [hero]: Photo[]): Built {
     els.push(photoEl(c, hero, { x: c.m, y: c.m, w: Wav, h: Hav * 0.55 }));
     ty = c.m + Hav * 0.55 + Hav * 0.08;
   }
-  if (c.opts.title) els.push(...titleBlock(c, c.opts.title, c.opts.subtitle, ty, { font: 'display', weight: 400, color: '#111111', ls: 0.12, upper: true, shadow: false, maxFu: 0.07, maxChars: 16 }));
+  if (c.opts.title) els.push(...titleBlock(c, c.opts.title, c.opts.subtitle, ty, { font: 'display', weight: 400, color: '#111111', ls: 0.12, upper: true, shadow: false }));
   return { pages: [els] };
 }
 
@@ -137,12 +145,12 @@ function buildInset(c: Ctx, [p]: Photo[]): Built {
 }
 function buildMatted(c: Ctx, [p]: Photo[]): Built {
   const f = 0.017;
-  const b = fitBox(ar(p), Math.min(0.78, 1 - 0.08) - 2 * f, c.H - 0.12 - 2 * f);
+  const b = fitBox(ar(p), 0.88 - 2 * f, 0.86 * c.H - 2 * f);
   return { pages: [[photoEl(c, p, centered(c, b.w + 2 * f, b.h + 2 * f), { frame: f, frameColor: '#0a0a0a' })]] };
 }
 function buildFramedShadow(c: Ctx, [p]: Photo[]): Built {
   const f = 0.012;
-  const b = fitBox(ar(p), 0.8 - 2 * f, c.H - 0.2 - 2 * f);
+  const b = fitBox(ar(p), 0.88 - 2 * f, 0.86 * c.H - 2 * f);
   return { pages: [[photoEl(c, p, centered(c, b.w + 2 * f, b.h + 2 * f), { frame: f, frameColor: '#0a0a0a', shadow: true })]] };
 }
 const buildPano = (n: number) => (c: Ctx, [p]: Photo[]): Built => {
@@ -310,8 +318,9 @@ function buildSplit(c: Ctx, [a, s, b]: Photo[]): Built {
 /* ---------- catalog ---------- */
 
 type Want = Record<Orient, number>;
-const scoreOf = (want: Want, slots: number, bias?: (A: number) => number) => (o: Orient[], aspect?: Aspect): number => {
+const scoreOf = (want: Want, slots: number, bias?: (A: number) => number, only?: Orient[]) => (o: Orient[], aspect?: Aspect): number => {
   if (o.length < slots) return 0;
+  if (only && o.slice(0, slots).some((x) => !only.includes(x))) return 0;
   const A = aspect ? aspectRatio(aspect) : 0.8;
   const b = bias ? bias(A) : 1;
   if (slots === 0) return 0.5 * b;
@@ -321,13 +330,13 @@ const scoreOf = (want: Want, slots: number, bias?: (A: number) => number) => (o:
 };
 const tallPage = (A: number) => (A < 1.3 ? 1 : 0.15);
 
-type Def = { id: string; name: string; category: Category; slots: number; pages?: number; want: Want; bias?: (A: number) => number; build: (c: Ctx, photos: Photo[]) => Built };
+type Def = { id: string; name: string; category: Category; slots: number; pages?: number; want: Want; bias?: (A: number) => number; only?: Orient[]; build: (c: Ctx, photos: Photo[]) => Built };
 
 function make(d: Def): Template {
   const pageCount = d.pages ?? 1;
   return {
     id: d.id, name: d.name, category: d.category, slots: d.slots, pageCount,
-    fits: scoreOf(d.want, d.slots, d.bias),
+    fits: scoreOf(d.want, d.slots, d.bias, d.only),
     layout(aspect, photos, opts = {}) {
       const A = aspectRatio(aspect);
       const g = opts.gap ?? 0.025;
@@ -351,23 +360,23 @@ export const TEMPLATES: Template[] = [
   make({ id: 'framed-portrait', name: 'Framed portrait with shadow', category: 'single', slots: 1, want: W(1, 0.2, 0.6), build: buildFramedShadow }),
   make({ id: 'pano-2', name: 'Panorama spread', category: 'story', slots: 1, pages: 2, want: W(0, 0.9, 0.1), build: buildPano(2) }),
   make({ id: 'pano-3', name: 'Panorama (3 pages)', category: 'story', slots: 1, pages: 3, want: W(0, 0.8, 0.1), build: buildPano(3) }),
-  make({ id: 'stack-2', name: 'Stack 2', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, build: buildStack(2, false) }),
-  make({ id: 'stack-3', name: 'Stack 3', category: 'trio', slots: 3, want: W(0.1, 1, 0.3), bias: tallPage, build: buildStack(3, false) }),
-  make({ id: 'stack-2-tight', name: 'Stack 2 tight', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, build: buildStack(2, true) }),
-  make({ id: 'stack-3-tight', name: 'Stack 3 tight', category: 'trio', slots: 3, want: W(0.1, 1, 0.3), bias: tallPage, build: buildStack(3, true) }),
-  make({ id: 'pair-stacked', name: 'Pair stacked', category: 'pair', slots: 2, want: W(0.2, 1, 0.5), bias: tallPage, build: buildPairStacked }),
-  make({ id: 'pair-side', name: 'Pair side by side', category: 'pair', slots: 2, want: W(1, 0.25, 0.6), build: buildPairSide }),
+  make({ id: 'stack-2', name: 'Stack 2', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, only: ['l'], build: buildStack(2, false) }),
+  make({ id: 'stack-3', name: 'Stack 3', category: 'trio', slots: 3, want: W(0.1, 1, 0.3), bias: tallPage, only: ['l'], build: buildStack(3, false) }),
+  make({ id: 'stack-2-tight', name: 'Stack 2 tight', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, only: ['l'], build: buildStack(2, true) }),
+  make({ id: 'stack-3-tight', name: 'Stack 3 tight', category: 'trio', slots: 3, want: W(0.1, 1, 0.3), bias: tallPage, only: ['l'], build: buildStack(3, true) }),
+  make({ id: 'pair-stacked', name: 'Pair stacked', category: 'pair', slots: 2, want: W(0.2, 1, 0.5), bias: tallPage, only: ['l'], build: buildPairStacked }),
+  make({ id: 'pair-side', name: 'Pair side by side', category: 'pair', slots: 2, want: W(1, 0.25, 0.6), only: ['p', 's'], build: buildPairSide }),
   make({ id: 'trio', name: 'Trio', category: 'trio', slots: 3, want: W(0.7, 0.7, 0.6), build: buildTrio }),
   make({ id: 'triptych', name: 'Triptych', category: 'trio', slots: 3, want: W(1, 0.2, 0.5), build: buildTriptych }),
   make({ id: 'grid-2x2', name: 'Grid 2x2', category: 'grid', slots: 4, want: W(0.6, 0.6, 0.8), build: buildGrid(2, 2) }),
   make({ id: 'grid-3x3', name: 'Grid 3x3', category: 'grid', slots: 9, want: W(0.55, 0.55, 0.7), build: buildGrid(3, 3) }),
   make({ id: 'overview-grid', name: 'Overview grid 3x2', category: 'grid', slots: 6, want: W(1, 0.25, 0.5), build: buildGrid(2, 3) }),
-  make({ id: 'film-strip', name: 'Film strip', category: 'story', slots: 3, want: W(0.15, 1, 0.4), bias: tallPage, build: buildFilm(3) }),
-  make({ id: 'film-strip-4', name: 'Film strip (4)', category: 'story', slots: 4, want: W(0.15, 1, 0.4), bias: tallPage, build: buildFilm(4) }),
+  make({ id: 'film-strip', name: 'Film strip', category: 'story', slots: 3, want: W(0.15, 1, 0.4), bias: tallPage, only: ['l'], build: buildFilm(3) }),
+  make({ id: 'film-strip-4', name: 'Film strip (4)', category: 'story', slots: 4, want: W(0.15, 1, 0.4), bias: tallPage, only: ['l'], build: buildFilm(4) }),
   make({ id: 'polaroid-scatter', name: 'Polaroid scatter', category: 'story', slots: 3, want: W(0.7, 0.7, 0.9), build: buildScatter(3) }),
   make({ id: 'polaroid-scatter-2', name: 'Polaroid pair', category: 'story', slots: 2, want: W(0.7, 0.7, 0.9), build: buildScatter(2) }),
   make({ id: 'magazine', name: 'Magazine', category: 'story', slots: 1, want: W(0.8, 0.8, 0.7), build: buildMagazine }),
-  make({ id: 'print-mat', name: 'Print mat', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, build: buildPrintMat }),
+  make({ id: 'print-mat', name: 'Print mat', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, only: ['l'], build: buildPrintMat }),
   make({ id: 'polaroid-on-photo', name: 'Polaroid on photo', category: 'story', slots: 2, want: W(0.8, 0.8, 0.8), build: buildPolaroidOnPhoto }),
   make({ id: 'seamless-split', name: 'Seamless split', category: 'story', slots: 3, pages: 2, want: W(1, 0.3, 0.6), build: buildSplit }),
 ];

@@ -215,3 +215,35 @@ describe('aspect preservation and centring', () => {
     for (const t of TEMPLATES) expect(() => t.layout('4:5', [])).not.toThrow();
   });
 });
+
+describe('reference sizing', () => {
+  it('cover title spans about 80% of the width and is big', () => {
+    for (const aspect of ['4:5', '1:1', '9:16'] as Aspect[]) {
+      const H = 1 / aspectRatio(aspect);
+      const t = getTemplate('cover')!.layout(aspect, makePhotos(1), { title: 'The Faroes', subtitle: 'June 2025' }).pages[0].filter((e) => e.kind === 'text');
+      const title = t[0] as import('../src/story/model').TextEl;
+      const widthUnits = 'THE FAROES'.length * (0.58 + title.letterSpacing) * title.size * H;
+      expect(widthUnits).toBeGreaterThan(0.7);
+      expect(widthUnits).toBeLessThan(0.86);
+      expect(title.size).toBeGreaterThanOrEqual(0.05);
+      expect(title.size).toBeLessThanOrEqual(0.13);
+      expect(title.y).toBeCloseTo(0.09, 6);
+      const sub = t[1] as import('../src/story/model').TextEl;
+      expect(sub.size).toBeCloseTo(0.022, 6);
+      expect(sub.letterSpacing).toBe(0.3);
+    }
+  });
+  it('long titles wrap rather than shrink below 5% of the height', () => {
+    const t = getTemplate('cover')!.layout('4:5', makePhotos(1), { title: 'A very long journey through the Faroe Islands' }).pages[0].find((e) => e.kind === 'text') as import('../src/story/model').TextEl;
+    expect(t.size).toBeGreaterThanOrEqual(0.05 - 1e-9);
+    expect(t.text.includes('\n')).toBe(true);
+  });
+  it('matted landscape is ~88% wide; portrait matted/framed ~86% tall', () => {
+    const [m] = getTemplate('matted-single')!.layout('4:5', makePhotos(1, 1, [[4000, 3000]])).pages[0] as PhotoEl[];
+    expect(m.w).toBeCloseTo(0.88, 9);
+    const [p] = getTemplate('matted-single')!.layout('4:5', makePhotos(1, 1, [[3000, 4000]])).pages[0] as PhotoEl[];
+    expect(p.h).toBeCloseTo(0.86, 9);
+    const [f] = getTemplate('framed-portrait')!.layout('4:5', makePhotos(1, 1, [[3000, 4000]])).pages[0] as PhotoEl[];
+    expect(f.h).toBeCloseTo(0.86, 9);
+  });
+});

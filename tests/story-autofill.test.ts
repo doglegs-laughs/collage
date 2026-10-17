@@ -133,3 +133,31 @@ describe('shuffleLayout', () => {
     expect(shuffleLayout(story, 9, 1)).toBe(story);
   });
 });
+
+describe('style rules', () => {
+  const L: [number, number][] = [[4000, 3000]];
+  it('clean: pair-side only for portraits/squares; stacks for landscape runs; mixed gives singles', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const photos = makePhotos(24, seed);
+      const pages = makeStory(photos, { style: 'clean', aspect: '4:5', seed });
+      const byId = new Map(photos.map((p) => [p.id, p]));
+      for (const p of pages) {
+        const ps = photoIdsOf(p.elements).map((id) => byId.get(id)!);
+        if (p.templateId === 'pair-side') expect(ps.every((x) => x.width <= x.height * 1.15)).toBe(true);
+        if (p.templateId?.startsWith('stack')) expect(ps.every((x) => x.width > x.height * 1.15)).toBe(true);
+      }
+    }
+    const three = makeStory(makePhotos(3, 1, L), { style: 'clean', aspect: '4:5', seed: 2 });
+    expect(three.map((p) => p.templateId)).toEqual(['stack-3']);
+    const two = makeStory(makePhotos(2, 1, L), { style: 'clean', aspect: '4:5', seed: 2 });
+    expect(two.map((p) => p.templateId)).toEqual(['stack-2']);
+    const mixed = makeStory(makePhotos(2, 1, [[4000, 3000]]).map((p, i) => (i ? { ...p, width: 3000, height: 4000 } : p)), { style: 'clean', aspect: '4:5', seed: 2 });
+    expect(mixed).toHaveLength(2);
+  });
+  it('stylized: landscape runs can use the tight stacks', () => {
+    const seen = new Set<string>();
+    for (let seed = 0; seed < 20; seed++) for (const p of makeStory(makePhotos(14, seed, L), { style: 'stylized', aspect: '4:5', seed })) seen.add(p.templateId!);
+    expect(seen.has('stack-2-tight') || seen.has('stack-3-tight')).toBe(true);
+    expect(seen.has('stack-2-tight') && seen.has('stack-3-tight')).toBe(true);
+  });
+});

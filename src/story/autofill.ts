@@ -83,7 +83,8 @@ export function makeStory(photos: Photo[], o: AutofillOpts): Page[] {
       if (t.slots > win.length || blocked(t.id)) continue;
       const s = t.fits(orient, o.aspect);
       if (s <= 0) continue;
-      const total = s + rng() * 0.3 + 0.02 * t.slots;
+      const bonus = o.style === 'clean' && s >= 0.9 && t.slots >= 2 ? 0.2 * t.slots : 0.02 * t.slots;
+      const total = s + rng() * (o.style === 'clean' ? 0.15 : 0.3) + bonus;
       if (total > bestScore) {
         best = t;
         bestScore = total;
