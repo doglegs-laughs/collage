@@ -17,6 +17,7 @@ test('app launches and shows the three mode tabs', async () => {
     await page.waitForSelector('.topbar');
     const tabs = page.getByRole('tab');
     await expect(tabs).toHaveText(['Collage', 'Story', 'Borders']);
+    await page.getByRole('tab', { name: 'Collage' }).click(); // the last-used tab is remembered between launches
     await expect(page.getByTestId('view-collage')).toBeVisible();
     await page.getByRole('tab', { name: 'Story' }).click();
     await expect(page.getByTestId('view-story')).toBeVisible();

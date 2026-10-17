@@ -1,0 +1,387 @@
+import { aspectRatio, defaultPhotoEl, defaultRectEl, defaultTextEl, makeRng, type Aspect, type El, type PhotoEl, type StyleId, type TextEl } from './model';
+import type { Photo } from '../core/images';
+
+export type Orient = 'p' | 'l' | 's';
+export type Category = 'title' | 'single' | 'pair' | 'trio' | 'grid' | 'story';
+export type LayoutOpts = {
+  title?: string;
+  subtitle?: string;
+  /** Caption for polaroid-on-photo (defaults to nothing). */
+  caption?: string;
+  /** Gutter between photos, fraction of page width (default 0.025). */
+  gap?: number;
+  /** Outer margin, fraction of page width (default = gap). */
+  margin?: number;
+  seed?: number;
+};
+export type LayoutResult = { pages: El[][]; backgrounds: string[] };
+export interface Template {
+  id: string;
+  name: string;
+  category: Category;
+  /** Number of photos consumed (title-card: 0, optionally one hero). */
+  slots: number;
+  /** Pages produced (2 or 3 for spreads). */
+  pageCount: number;
+  /** Score 0..1 for the next photos' orientations (needs >= slots entries, else 0). `aspect` lets portrait-page-only layouts opt out of wide pages. */
+  fits(orientations: Orient[], aspect?: Aspect): number;
+  layout(aspect: Aspect, photos: Photo[], opts?: LayoutOpts): LayoutResult;
+}
+
+export const WIDE_RATIO = 1.9;
+export function orientationOf(p: { width: number; height: number }): Orient {
+  const r = p.width / p.height;
+  return r > 1.15 ? 'l' : r < 0.87 ? 'p' : 's';
+}
+
+/* ---------- layout helpers (all lengths in "width units": page width = 1, page height = H = 1/A) ---------- */
+
+type Ctx = { A: number; H: number; g: number; m: number; seed: number; opts: LayoutOpts };
+type Rect = { x: number; y: number; w: number; h: number };
+const ar = (p?: Photo) => (p ? p.width / p.height : 1.5);
+const clampN = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+
+export function fitBox(a: number, aw: number, ah: number): { w: number; h: number } {
+  return aw / ah > a ? { w: ah * a, h: ah } : { w: aw, h: aw / a };
+}
+/** Like fitBox but lets the frame deviate from the photo aspect by `tol` (cropping) to fill more of the area. */
+function fitLoose(a: number, aw: number, ah: number, tol = 0.12) {
+  return fitBox(clampN(aw / ah, a * (1 - tol), a / (1 - tol)), aw, ah);
+}
+const centered = (c: Ctx, w: number, h: number): Rect => ({ x: (1 - w) / 2, y: (c.H - h) / 2, w, h });
+
+function photoEl(c: Ctx, photo: Photo | undefined, r: Rect, extra: Partial<PhotoEl> = {}): PhotoEl {
+  return defaultPhotoEl({ photoId: photo?.id ?? null, x: r.x, y: r.y * c.A, w: r.w, h: r.h * c.A, ...extra });
+}
+function rectEl(c: Ctx, r: Rect, extra: Partial<ReturnType<typeof defaultRectEl>> = {}) {
+  return defaultRectEl({ x: r.x, y: r.y * c.A, w: r.w, h: r.h * c.A, ...extra });
+}
+function textEl(c: Ctx, r: Rect, fontUnits: number, extra: Partial<TextEl>): TextEl {
+  return defaultTextEl({ x: r.x, y: r.y * c.A, w: r.w, h: r.h * c.A, size: fontUnits * c.A, ...extra });
+}
+/** Greedy word wrap into lines of at most `maxChars`. */
+export function breakLines(text: string, maxChars: number): string[] {
+  const out: string[] = [];
+  for (const para of text.split('\n')) {
+    let line = '';
+    for (const word of para.split(/\s+/).filter(Boolean)) {
+      if (line && (line + ' ' + word).length > maxChars) {
+        out.push(line);
+        line = word;
+      } else line = line ? line + ' ' + word : word;
+    }
+    out.push(line);
+  }
+  return out;
+}
+const rotBox = (w: number, h: number, deg: number) => {
+  const t = (Math.abs(deg) * Math.PI) / 180;
+  return { bw: w * Math.cos(t) + h * Math.sin(t), bh: w * Math.sin(t) + h * Math.cos(t) };
+};
+/** Centre that keeps the rotated box inside the page (width units). */
+function clampCenter(c: Ctx, cx: number, cy: number, w: number, h: number, rot: number, pad = 0.01) {
+  const { bw, bh } = rotBox(w, h, rot);
+  const f = (v: number, size: number, total: number) => (size + 2 * pad >= total ? total / 2 : clampN(v, size / 2 + pad, total - size / 2 - pad));
+  return { cx: f(cx, bw, 1), cy: f(cy, bh, c.H) };
+}
+
+/* ---------- builders: each returns pages of elements ---------- */
+
+const WHITE = '#ffffff';
+type Built = { pages: El[][]; bg?: string };
+
+function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: number, o: { font: TextEl['font']; weight: TextEl['weight']; color: string; ls: number; upper: boolean; shadow: boolean; maxFu: number; maxChars: number }): TextEl[] {
+  const lines = breakLines(title, o.maxChars);
+  const longest = Math.max(1, ...lines.map((l) => l.length));
+  const fu = Math.min(o.maxFu, 0.86 / (longest * (o.upper ? 0.78 : 0.6) + longest * o.ls));
+  const out = [textEl(c, { x: 0.07, y, w: 0.86, h: lines.length * fu * 1.25 }, fu, { text: lines.join('\n'), font: o.font, weight: o.weight, color: o.color, letterSpacing: o.ls, uppercase: o.upper, shadow: o.shadow, align: 'center' })];
+  if (subtitle) {
+    const sfu = Math.max(0.014, fu * 0.28);
+    out.push(textEl(c, { x: 0.07, y: y + lines.length * fu * 1.25 + sfu * 0.6, w: 0.86, h: sfu * 1.4 }, sfu, { text: subtitle, font: 'displaySans', weight: 300, color: o.color, letterSpacing: 0.3, uppercase: true, shadow: o.shadow, align: 'center' }));
+  }
+  return out;
+}
+
+const buildCover = (sans: boolean) => (c: Ctx, [p]: Photo[]): Built => {
+  const els: El[] = [photoEl(c, p, { x: 0, y: 0, w: 1, h: c.H })];
+  if (c.opts.title) {
+    els.push(...titleBlock(c, c.opts.title, c.opts.subtitle, 0.09, { font: sans ? 'displaySans' : 'display', weight: sans ? 300 : 400, color: '#ffffff', ls: sans ? 0.25 : 0.18, upper: true, shadow: true, maxFu: 0.085, maxChars: 14 }));
+  }
+  return { pages: [els] };
+};
+
+function buildTitleCard(c: Ctx, [hero]: Photo[]): Built {
+  const els: El[] = [];
+  const { Wav, Hav } = dims(c);
+  let ty = c.H * 0.4;
+  if (hero) {
+    els.push(photoEl(c, hero, { x: c.m, y: c.m, w: Wav, h: Hav * 0.55 }));
+    ty = c.m + Hav * 0.55 + Hav * 0.08;
+  }
+  if (c.opts.title) els.push(...titleBlock(c, c.opts.title, c.opts.subtitle, ty, { font: 'display', weight: 400, color: '#111111', ls: 0.12, upper: true, shadow: false, maxFu: 0.07, maxChars: 16 }));
+  return { pages: [els] };
+}
+
+const dims = (c: Ctx) => ({ Wav: 1 - 2 * c.m, Hav: c.H - 2 * c.m });
+
+const buildBleed = (c: Ctx, [p]: Photo[]): Built => ({ pages: [[photoEl(c, p, { x: 0, y: 0, w: 1, h: c.H })]] });
+
+function buildBorder(c: Ctx, [p]: Photo[]): Built {
+  const { Wav, Hav } = dims(c);
+  const b = fitBox(ar(p), Wav, Hav);
+  return { pages: [[photoEl(c, p, centered(c, b.w, b.h))]] };
+}
+function buildInset(c: Ctx, [p]: Photo[]): Built {
+  const b = fitLoose(ar(p), 1 - 0.1, c.H - 0.03);
+  return { pages: [[photoEl(c, p, centered(c, b.w, b.h))]] };
+}
+function buildMatted(c: Ctx, [p]: Photo[]): Built {
+  const f = 0.017;
+  const b = fitBox(ar(p), Math.min(0.78, 1 - 0.08) - 2 * f, c.H - 0.12 - 2 * f);
+  return { pages: [[photoEl(c, p, centered(c, b.w + 2 * f, b.h + 2 * f), { frame: f, frameColor: '#0a0a0a' })]] };
+}
+function buildFramedShadow(c: Ctx, [p]: Photo[]): Built {
+  const f = 0.012;
+  const b = fitBox(ar(p), 0.8 - 2 * f, c.H - 0.2 - 2 * f);
+  return { pages: [[photoEl(c, p, centered(c, b.w + 2 * f, b.h + 2 * f), { frame: f, frameColor: '#0a0a0a', shadow: true })]] };
+}
+const buildPano = (n: number) => (c: Ctx, [p]: Photo[]): Built => {
+  const w = n - 2 * c.m;
+  const h = Math.min(w / ar(p), c.H - 2 * c.m);
+  const pages: El[][] = Array.from({ length: n }, () => []);
+  pages[0].push(photoEl(c, p, { x: c.m, y: (c.H - h) / 2, w, h }));
+  return { pages };
+};
+const buildStack = (n: number, tight: boolean) => (c: Ctx, photos: Photo[]): Built => {
+  const g = tight ? 0.005 : c.g;
+  const { Wav, Hav } = dims(c);
+  const h = (Hav - (n - 1) * g) / n;
+  return { pages: [photos.slice(0, n).map((p, i) => photoEl(c, p, { x: c.m, y: c.m + i * (h + g), w: Wav, h }))] };
+};
+/** Two photos stacked at a common width, aspects preserved; returns the rects and total size. */
+function stackedPair(c: Ctx, photos: Photo[], availW: number, availH: number) {
+  const S = 1 / ar(photos[0]) + 1 / ar(photos[1]);
+  const w = Math.min(availW, (availH - c.g) / S);
+  const h0 = w / ar(photos[0]);
+  const h1 = w / ar(photos[1]);
+  return { w, h: h0 + h1 + c.g, h0, h1 };
+}
+function buildPairStacked(c: Ctx, photos: Photo[]): Built {
+  const { Wav, Hav } = dims(c);
+  const s = stackedPair(c, photos, Wav, Hav);
+  const y0 = (c.H - s.h) / 2;
+  const x = (1 - s.w) / 2;
+  return { pages: [[photoEl(c, photos[0], { x, y: y0, w: s.w, h: s.h0 }), photoEl(c, photos[1], { x, y: y0 + s.h0 + c.g, w: s.w, h: s.h1 })]] };
+}
+function buildPairSide(c: Ctx, photos: Photo[]): Built {
+  const { Wav, Hav } = dims(c);
+  const a0 = ar(photos[0]);
+  const a1 = ar(photos[1]);
+  const h = Math.min(Hav, (Wav - c.g) / (a0 + a1));
+  const x0 = (1 - (h * (a0 + a1) + c.g)) / 2;
+  const y = (c.H - h) / 2;
+  return { pages: [[photoEl(c, photos[0], { x: x0, y, w: h * a0, h }), photoEl(c, photos[1], { x: x0 + h * a0 + c.g, y, w: h * a1, h })]] };
+}
+function buildTrio(c: Ctx, photos: Photo[]): Built {
+  const { Wav, Hav } = dims(c);
+  const [a, b, d] = photos;
+  if (c.A >= 1.3) {
+    const w1 = (Wav - c.g) * 0.6;
+    const w2 = Wav - c.g - w1;
+    const h2 = (Hav - c.g) / 2;
+    return { pages: [[photoEl(c, a, { x: c.m, y: c.m, w: w1, h: Hav }), photoEl(c, b, { x: c.m + w1 + c.g, y: c.m, w: w2, h: h2 }), photoEl(c, d, { x: c.m + w1 + c.g, y: c.m + h2 + c.g, w: w2, h: h2 })]] };
+  }
+  const h1 = (Hav - c.g) * 0.58;
+  const h2 = Hav - c.g - h1;
+  const w2 = (Wav - c.g) / 2;
+  return { pages: [[photoEl(c, a, { x: c.m, y: c.m, w: Wav, h: h1 }), photoEl(c, b, { x: c.m, y: c.m + h1 + c.g, w: w2, h: h2 }), photoEl(c, d, { x: c.m + w2 + c.g, y: c.m + h1 + c.g, w: w2, h: h2 })]] };
+}
+function buildTriptych(c: Ctx, photos: Photo[]): Built {
+  const { Wav, Hav } = dims(c);
+  const cw = (Wav - 2 * c.g) / 3;
+  const ch = Math.min(Hav, cw * 1.5);
+  return { pages: [photos.slice(0, 3).map((p, i) => photoEl(c, p, { x: c.m + i * (cw + c.g), y: (c.H - ch) / 2, w: cw, h: ch }))] };
+}
+const buildGrid = (rows: number, cols: number) => (c: Ctx, photos: Photo[]): Built => {
+  const { Wav, Hav } = dims(c);
+  const w = (Wav - (cols - 1) * c.g) / cols;
+  const h = (Hav - (rows - 1) * c.g) / rows;
+  return { pages: [photos.slice(0, rows * cols).map((p, i) => photoEl(c, p, { x: c.m + (i % cols) * (w + c.g), y: c.m + Math.floor(i / cols) * (h + c.g), w, h }))] };
+};
+const buildFilm = (n: number) => (c: Ctx, photos: Photo[]): Built => {
+  const fg = c.g * 0.8;
+  const { Hav } = dims(c);
+  const fh = (Hav - (n - 1) * fg) / n;
+  const fw = Math.min(0.72, fh * 1.5);
+  const x = (1 - fw) / 2;
+  const els: El[] = [];
+  const band = x;
+  const sw = Math.min(0.03, band * 0.4);
+  if (sw > 0.008) {
+    const sh = sw * 1.3;
+    const pitch = sh * 1.9;
+    const count = Math.max(1, Math.floor((c.H - 0.04) / pitch));
+    const y0 = (c.H - (count * pitch - (pitch - sh))) / 2;
+    for (let i = 0; i < count; i++) {
+      for (const cx of [band / 2, 1 - band / 2]) els.push(rectEl(c, { x: cx - sw / 2, y: y0 + i * pitch, w: sw, h: sh }, { fill: '#d9d4c7', radius: sw * 0.25 }));
+    }
+  }
+  photos.slice(0, n).forEach((p, i) => els.push(photoEl(c, p, { x, y: c.m + i * (fh + fg), w: fw, h: fh })));
+  return { pages: [els], bg: '#0b0b0b' };
+};
+
+const POLA = { f: 0.06, fb: 0.16, inner: 0.88, ratio: 1.16 };
+function polaroidEl(c: Ctx, photo: Photo | undefined, cx: number, cy: number, cw: number, rot: number): PhotoEl {
+  const ch = cw * POLA.ratio;
+  return photoEl(c, photo, { x: cx - cw / 2, y: cy - ch / 2, w: cw, h: ch }, { frame: cw * POLA.f, frameBottom: cw * POLA.fb, frameColor: '#fbf9f4', shadow: true, rotation: rot });
+}
+const buildScatter = (n: number) => (c: Ctx, photos: Photo[]): Built => {
+  const rng = makeRng(c.seed * 7919 + n);
+  const wide = c.A >= 1.3;
+  const cw = wide ? Math.min(0.9 / n - 0.02, (c.H * 0.8) / POLA.ratio) : Math.min(0.52, (c.H * 0.4) / POLA.ratio * 1.2);
+  const spots = wide
+    ? Array.from({ length: n }, (_, i) => [(i + 0.5) / n, c.H / 2] as const)
+    : n === 3 ? ([[0.38, 0.22], [0.64, 0.5], [0.38, 0.78]] as const).map(([x, y]) => [x, y * c.H] as const)
+    : ([[0.42, 0.3], [0.58, 0.7]] as const).map(([x, y]) => [x, y * c.H] as const);
+  const els = photos.slice(0, n).map((p, i) => {
+    const rot = (i % 2 ? 1 : -1) * (2 + rng() * 4);
+    const ch = cw * POLA.ratio;
+    const { cx, cy } = clampCenter(c, spots[i][0], spots[i][1], cw, ch, rot);
+    return polaroidEl(c, p, cx, cy, cw, Math.round(rot * 10) / 10);
+  });
+  return { pages: [els] };
+};
+function buildPolaroidOnPhoto(c: Ctx, [bg, card]: Photo[]): Built {
+  const rng = makeRng(c.seed * 104729 + 3);
+  const rot = Math.round((rng() < 0.5 ? -1 : 1) * (1 + rng() * 2) * 10) / 10;
+  const cw = Math.min(0.66, (c.H * 0.7) / POLA.ratio);
+  const ch = cw * POLA.ratio;
+  const cx = 0.5;
+  const cy = c.H / 2;
+  const els: El[] = [photoEl(c, bg, { x: 0, y: 0, w: 1, h: c.H }, { blur: 0.55 }), polaroidEl(c, card, cx, cy, cw, rot)];
+  if (c.opts.caption) {
+    const band = cw * (POLA.f + POLA.fb);
+    const dy = ch / 2 - band / 2;
+    const t = (rot * Math.PI) / 180;
+    const tx = cx - dy * Math.sin(t);
+    const ty = cy + dy * Math.cos(t);
+    const tw = cw * 0.8;
+    const th = band * 0.5;
+    els.push(textEl(c, { x: tx - tw / 2, y: ty - th / 2, w: tw, h: th }, band * 0.26, { text: c.opts.caption, font: 'mono', weight: 400, color: '#3a3733', rotation: rot, align: 'center' }));
+  }
+  return { pages: [els] };
+}
+function buildMagazine(c: Ctx, [p]: Photo[]): Built {
+  const { Wav, Hav } = dims(c);
+  const ph = Hav * 0.8;
+  const els: El[] = [photoEl(c, p, { x: c.m, y: c.m, w: Wav, h: ph })];
+  if (c.opts.title) {
+    const lines = breakLines(c.opts.title, 12);
+    const fu = Math.min(0.11, 0.8 / (Math.max(...lines.map((l) => l.length)) * 0.55));
+    const th = lines.length * fu * 1.2;
+    els.push(textEl(c, { x: c.m + 0.04, y: c.m + ph - th - 0.03, w: Wav - 0.08, h: th }, fu, { text: lines.join('\n'), font: 'serif', weight: 600, color: '#ffffff', align: 'left', shadow: true }));
+  }
+  if (c.opts.subtitle) els.push(textEl(c, { x: c.m, y: c.m + ph + 0.015, w: Wav, h: 0.03 }, 0.018, { text: c.opts.subtitle, font: 'mono', color: '#444444', align: 'left' }));
+  return { pages: [els] };
+}
+function buildPrintMat(c: Ctx, photos: Photo[]): Built {
+  const pad = 0.04;
+  const m2 = Math.max(c.m, 0.05);
+  const s = stackedPair(c, photos, 1 - 2 * (m2 + pad), c.H - 2 * (m2 + pad));
+  const paper: Rect = centered(c, s.w + 2 * pad, s.h + 2 * pad);
+  const x = paper.x + pad;
+  const y0 = paper.y + pad;
+  return {
+    pages: [[
+      rectEl(c, paper, { fill: '#ffffff', stroke: '#d6d6d6', strokeWidth: 0.0012, shadow: true }),
+      photoEl(c, photos[0], { x, y: y0, w: s.w, h: s.h0 }),
+      photoEl(c, photos[1], { x, y: y0 + s.h0 + c.g, w: s.w, h: s.h1 }),
+    ]],
+  };
+}
+function buildSplit(c: Ctx, [a, s, b]: Photo[]): Built {
+  const { Hav } = dims(c);
+  const left = photoEl(c, a, { x: c.m, y: c.m, w: 0.55 - c.g - c.m, h: Hav });
+  const span = photoEl(c, s, { x: 0.55, y: 0, w: 0.9, h: c.H });
+  const right = photoEl(c, b, { x: 0.45 + c.g, y: c.m, w: 1 - c.m - (0.45 + c.g), h: Hav });
+  return { pages: [[left, span], [right]] };
+}
+
+/* ---------- catalog ---------- */
+
+type Want = Record<Orient, number>;
+const scoreOf = (want: Want, slots: number, bias?: (A: number) => number) => (o: Orient[], aspect?: Aspect): number => {
+  if (o.length < slots) return 0;
+  const A = aspect ? aspectRatio(aspect) : 0.8;
+  const b = bias ? bias(A) : 1;
+  if (slots === 0) return 0.5 * b;
+  let s = 0;
+  for (let i = 0; i < slots; i++) s += want[o[i]];
+  return clampN((s / slots) * b, 0, 1);
+};
+const tallPage = (A: number) => (A < 1.3 ? 1 : 0.15);
+
+type Def = { id: string; name: string; category: Category; slots: number; pages?: number; want: Want; bias?: (A: number) => number; build: (c: Ctx, photos: Photo[]) => Built };
+
+function make(d: Def): Template {
+  const pageCount = d.pages ?? 1;
+  return {
+    id: d.id, name: d.name, category: d.category, slots: d.slots, pageCount,
+    fits: scoreOf(d.want, d.slots, d.bias),
+    layout(aspect, photos, opts = {}) {
+      const A = aspectRatio(aspect);
+      const g = opts.gap ?? 0.025;
+      const c: Ctx = { A, H: 1 / A, g, m: opts.margin ?? g, seed: opts.seed ?? 1, opts };
+      const built = d.build(c, photos);
+      const pages = built.pages.map((els) => els.map((e, z) => ({ ...e, z })));
+      return { pages, backgrounds: pages.map(() => built.bg ?? WHITE) };
+    },
+  };
+}
+const W = (p: number, l: number, s: number): Want => ({ p, l, s });
+
+export const TEMPLATES: Template[] = [
+  make({ id: 'cover', name: 'Cover', category: 'title', slots: 1, want: W(1, 0.7, 0.8), build: buildCover(false) }),
+  make({ id: 'cover-sans', name: 'Cover (sans)', category: 'title', slots: 1, want: W(0.9, 0.7, 0.8), build: buildCover(true) }),
+  make({ id: 'title-card', name: 'Title card', category: 'title', slots: 0, want: W(0, 0, 0), build: buildTitleCard }),
+  make({ id: 'single-bleed', name: 'Single, full bleed', category: 'single', slots: 1, want: W(0.8, 0.4, 0.6), build: buildBleed }),
+  make({ id: 'single-border', name: 'Single, white border', category: 'single', slots: 1, want: W(0.6, 0.55, 0.7), build: buildBorder }),
+  make({ id: 'inset-single', name: 'Inset single', category: 'single', slots: 1, want: W(1, 0.35, 0.7), build: buildInset }),
+  make({ id: 'matted-single', name: 'Matted single', category: 'single', slots: 1, want: W(0.45, 1, 0.7), build: buildMatted }),
+  make({ id: 'framed-portrait', name: 'Framed portrait with shadow', category: 'single', slots: 1, want: W(1, 0.2, 0.6), build: buildFramedShadow }),
+  make({ id: 'pano-2', name: 'Panorama spread', category: 'story', slots: 1, pages: 2, want: W(0, 0.9, 0.1), build: buildPano(2) }),
+  make({ id: 'pano-3', name: 'Panorama (3 pages)', category: 'story', slots: 1, pages: 3, want: W(0, 0.8, 0.1), build: buildPano(3) }),
+  make({ id: 'stack-2', name: 'Stack 2', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, build: buildStack(2, false) }),
+  make({ id: 'stack-3', name: 'Stack 3', category: 'trio', slots: 3, want: W(0.1, 1, 0.3), bias: tallPage, build: buildStack(3, false) }),
+  make({ id: 'stack-2-tight', name: 'Stack 2 tight', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, build: buildStack(2, true) }),
+  make({ id: 'stack-3-tight', name: 'Stack 3 tight', category: 'trio', slots: 3, want: W(0.1, 1, 0.3), bias: tallPage, build: buildStack(3, true) }),
+  make({ id: 'pair-stacked', name: 'Pair stacked', category: 'pair', slots: 2, want: W(0.2, 1, 0.5), bias: tallPage, build: buildPairStacked }),
+  make({ id: 'pair-side', name: 'Pair side by side', category: 'pair', slots: 2, want: W(1, 0.25, 0.6), build: buildPairSide }),
+  make({ id: 'trio', name: 'Trio', category: 'trio', slots: 3, want: W(0.7, 0.7, 0.6), build: buildTrio }),
+  make({ id: 'triptych', name: 'Triptych', category: 'trio', slots: 3, want: W(1, 0.2, 0.5), build: buildTriptych }),
+  make({ id: 'grid-2x2', name: 'Grid 2x2', category: 'grid', slots: 4, want: W(0.6, 0.6, 0.8), build: buildGrid(2, 2) }),
+  make({ id: 'grid-3x3', name: 'Grid 3x3', category: 'grid', slots: 9, want: W(0.55, 0.55, 0.7), build: buildGrid(3, 3) }),
+  make({ id: 'overview-grid', name: 'Overview grid 3x2', category: 'grid', slots: 6, want: W(1, 0.25, 0.5), build: buildGrid(2, 3) }),
+  make({ id: 'film-strip', name: 'Film strip', category: 'story', slots: 3, want: W(0.15, 1, 0.4), bias: tallPage, build: buildFilm(3) }),
+  make({ id: 'film-strip-4', name: 'Film strip (4)', category: 'story', slots: 4, want: W(0.15, 1, 0.4), bias: tallPage, build: buildFilm(4) }),
+  make({ id: 'polaroid-scatter', name: 'Polaroid scatter', category: 'story', slots: 3, want: W(0.7, 0.7, 0.9), build: buildScatter(3) }),
+  make({ id: 'polaroid-scatter-2', name: 'Polaroid pair', category: 'story', slots: 2, want: W(0.7, 0.7, 0.9), build: buildScatter(2) }),
+  make({ id: 'magazine', name: 'Magazine', category: 'story', slots: 1, want: W(0.8, 0.8, 0.7), build: buildMagazine }),
+  make({ id: 'print-mat', name: 'Print mat', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, build: buildPrintMat }),
+  make({ id: 'polaroid-on-photo', name: 'Polaroid on photo', category: 'story', slots: 2, want: W(0.8, 0.8, 0.8), build: buildPolaroidOnPhoto }),
+  make({ id: 'seamless-split', name: 'Seamless split', category: 'story', slots: 3, pages: 2, want: W(1, 0.3, 0.6), build: buildSplit }),
+];
+
+export const getTemplate = (id: string | null | undefined): Template | undefined => TEMPLATES.find((t) => t.id === id);
+
+/** Template ids offered by each style for auto-fill (cover / panorama / overview are handled explicitly by autofill). */
+export const STYLE_TEMPLATE_IDS: Record<StyleId, string[]> = {
+  clean: ['inset-single', 'single-border', 'stack-2', 'stack-3', 'pair-side'],
+  stylized: ['matted-single', 'framed-portrait', 'print-mat', 'polaroid-on-photo', 'seamless-split', 'stack-2-tight', 'stack-3-tight', 'polaroid-scatter'],
+  carousel: ['stack-2', 'stack-3', 'matted-single', 'seamless-split', 'single-border', 'inset-single'],
+  gallery: ['pair-stacked', 'pair-side', 'trio', 'triptych', 'grid-2x2', 'inset-single', 'single-border'],
+  film: ['film-strip', 'film-strip-4', 'single-border', 'matted-single'],
+  polaroid: ['polaroid-scatter', 'polaroid-scatter-2', 'polaroid-on-photo', 'single-border', 'matted-single'],
+  magazine: ['magazine', 'inset-single', 'single-border'],
+};
+export const templatesForStyle = (style: StyleId): Template[] => STYLE_TEMPLATE_IDS[style].map((id) => getTemplate(id)!).filter(Boolean);

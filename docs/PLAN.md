@@ -73,6 +73,8 @@ interface VideoJob {
 }
 ```
 
+Per-boundary transitions: `VideoJob.transitions?: ('none' | 'crossfade' | 'slide')[]` (length = pages − 1) overrides `transition` per boundary. `'slide'` = `xfade=transition=slideleft`, which moves both slides together like a horizontal pan, so a panorama or seamless split reads as one continuous camera move left to right. The story exporter sets `'slide'` on every boundary that an element crosses (`story/model.ts` `crossesBoundary(story, i)`), and Ken Burns is disabled on both pages of such a boundary so the seam lines up during the slide.
+
 Video build: write frames to a temp dir; ffmpeg with one `-loop 1 -t d -i frame_i.jpg` input per page, optional `zoompan`/`scale` for Ken Burns, chained `xfade` for crossfade, `format=yuv420p`, `libx264 -crf 18 -preset medium -movflags +faststart`, AAC 192k audio with `afade`, `-shortest` relative to video. Parse `-progress pipe:1` `out_time_ms` for progress. Cancel kills the process and deletes partial output. Temp dir always removed.
 
 ## Core photo model
