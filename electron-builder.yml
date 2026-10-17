@@ -1,0 +1,22 @@
+appId: com.collage.app
+productName: Collage
+directories:
+  output: release
+  buildResources: build
+files:
+  - electron/**/*
+  - dist/renderer/**/*
+  - package.json
+asar: true
+asarUnpack: []
+mac:
+  category: public.app-category.photography
+  identity: null
+  target:
+    - target: zip
+      arch: [arm64, x64]
+    - target: dir
+      arch: [arm64, x64]
+  extraResources:
+    - from: resources/ffmpeg/darwin-${arch}/ffmpeg
+      to: ffmpeg/ffmpeg

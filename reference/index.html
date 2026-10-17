@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Collage</title>
+  <meta name="description" content="Make photo collages in your browser. Photos never leave your device.">
+  <meta name="theme-color" content="#f5f6f9">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Crect x='6' y='6' width='9' height='12' rx='2' fill='%23fff'/%3E%3Crect x='17' y='6' width='9' height='7' rx='2' fill='%23c7d2fe'/%3E%3Crect x='6' y='20' width='9' height='6' rx='2' fill='%23c7d2fe'/%3E%3Crect x='17' y='15' width='9' height='11' rx='2' fill='%23fff'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f6f9; --panel: #ffffff; --panel-2: #f6f7fa; --line: #eceef3; --line-strong: #dfe3ea;
+      --text: #0f172a; --muted: #5b6577; --faint: #98a2b3;
+      --accent: #6366f1; --accent-2: #8b5cf6; --accent-hover: #4f46e5; --accent-soft: #eef0ff; --accent-text: #4338ca; --on-accent: #ffffff;
+      --gradient: linear-gradient(135deg, var(--accent), var(--accent-2));
+      --danger: #e11d48; --success: #059669;
+      --placeholder: #f2f4f8; --placeholder-line: #d3d9e3;
+      --shadow-sm: 0 1px 2px #0f172a0a, 0 1px 3px #0f172a0d;
+      --shadow: 0 1px 2px #0f172a08, 0 10px 30px -12px #0f172a26;
+      --shadow-lg: 0 2px 6px #0f172a0d, 0 24px 60px -20px #312e8140;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px; letter-spacing: -.005em; -webkit-font-smoothing: antialiased; overflow: hidden; }
+    button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    [hidden] { display: none !important; }
+
+    /* ── App frame: frosted top bar over two floating cards ── */
+    .app { display: grid; grid-template-rows: auto 1fr; height: 100dvh; }
+    .topbar { display: flex; align-items: center; gap: 14px; padding: 12px 22px; padding-top: max(12px, env(safe-area-inset-top)); background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: saturate(1.6) blur(14px); -webkit-backdrop-filter: saturate(1.6) blur(14px); z-index: 5; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; letter-spacing: -.02em; }
+    .brand svg { width: 30px; height: 30px; flex: none; filter: drop-shadow(0 4px 10px #6366f155); }
+    .topbar .spacer { flex: 1; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; background: var(--panel); box-shadow: var(--shadow-sm); color: var(--muted); font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 38px; padding: 0 16px; border-radius: 11px; border: 1px solid var(--line-strong); background: var(--panel); font-weight: 600; transition: background .15s, border-color .15s, color .15s, transform .15s, box-shadow .15s, filter .15s; }
+    .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-text); }
+    .btn svg { width: 16px; height: 16px; flex: none; }
+    .btn.primary { background: var(--gradient); border: 0; color: var(--on-accent); padding: 0 18px; box-shadow: 0 1px 0 #ffffff40 inset, 0 8px 20px -8px #6366f1aa; }
+    .btn.primary:hover:not(:disabled) { color: var(--on-accent); filter: brightness(1.06); transform: translateY(-1px); box-shadow: 0 1px 0 #ffffff40 inset, 0 12px 24px -8px #6366f1bb; }
+    .btn.primary:active:not(:disabled) { transform: translateY(0); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; filter: grayscale(.3); }
+    .btn.working svg { display: none; }
+    .btn.working::before { content: ''; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #ffffff66; border-top-color: #fff; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .btn.block { width: 100%; height: 44px; }
+    .btn.soft { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); }
+    .btn.soft:hover:not(:disabled) { background: #e3e6ff; border-color: transparent; }
+
+    .workspace { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 16px; padding: 4px 16px 16px; min-height: 0; }
+    .sidebar { overflow-y: auto; background: var(--panel); border-radius: 20px; box-shadow: var(--shadow); padding: 6px 0 calc(16px + env(safe-area-inset-bottom)); scrollbar-width: thin; }
+    .section { padding: 18px 20px; }
+    .section + .section { border-top: 1px solid var(--line); }
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+    .section-title { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -.01em; color: var(--text); }
+    .section-note { color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .hint { margin: 10px 0 0; color: var(--faint); font-size: 12.5px; line-height: 1.5; }
+    .field-label { display: block; margin-bottom: 7px; font-size: 12.5px; font-weight: 500; color: var(--muted); }
+
+    /* ── Recents ── */
+    .recents-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+    .recent { position: relative; aspect-ratio: 1; }
+    .recent-pick { display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 12px; overflow: hidden; background: var(--placeholder); box-shadow: var(--shadow-sm); outline-offset: 2px; transition: transform .15s, box-shadow .15s; }
+    .recent-pick:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+    .recent-pick img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .15s; }
+    .recent-pick.used img { opacity: .35; }
+    .recent-pick.used::after { content: ''; position: absolute; inset: 0; border-radius: 12px; box-shadow: inset 0 0 0 2px var(--accent); background: center / 22px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='11' fill='%236366f1'/%3E%3Cpath d='M7 12.5l3.2 3.2L17 9' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+    .recent-remove { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: var(--panel); color: var(--muted); font-size: 13px; line-height: 20px; opacity: 0; transform: scale(.8); transition: .12s; box-shadow: 0 1px 2px #0f172a1a, 0 2px 8px #0f172a26; }
+    .recent:hover .recent-remove, .recent-remove:focus-visible { opacity: 1; transform: none; }
+    .recent-remove:hover { background: var(--danger); color: #fff; }
+    @media (hover: none) { .recent-remove { opacity: 1; transform: none; } }
+
+    /* ── Layout controls ── */
+    .dims { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stepper { display: grid; grid-template-columns: 34px 1fr 34px; height: 38px; padding: 3px; border-radius: 11px; background: var(--panel-2); border: 1px solid var(--line); }
+    .stepper button { border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 17px; line-height: 1; transition: .12s; }
+    .stepper button:hover { color: var(--accent-text); background: var(--panel); box-shadow: var(--shadow-sm); }
+    .stepper input { width: 100%; min-width: 0; border: 0; background: transparent; text-align: center; font-weight: 650; font-variant-numeric: tabular-nums; -moz-appearance: textfield; border-radius: 8px; }
+    .stepper input::-webkit-inner-spin-button, .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .stepper input:focus { outline: none; background: var(--panel); box-shadow: 0 0 0 2px var(--accent); }
+    .shapes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+    .shape { display: grid; justify-items: center; align-content: center; gap: 6px; height: 58px; padding: 4px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); color: var(--muted); font-size: 11.5px; font-weight: 600; transition: .15s; }
+    .shape:hover { background: var(--panel); border-color: var(--line-strong); color: var(--text); box-shadow: var(--shadow-sm); }
+    .shape[aria-pressed=true] { background: var(--accent-soft); border-color: #c7cbff; color: var(--accent-text); box-shadow: 0 0 0 1px var(--accent) inset; }
+    .shape i { display: block; border: 1.75px solid currentColor; border-radius: 3px; }
+    .range-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; }
+    input[type=range] { width: 100%; accent-color: var(--accent); }
+    output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(--panel-2); text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; font-weight: 500; }
+    .tips { margin: 0; padding: 0; list-style: none; display: grid; gap: 9px; color: var(--muted); font-size: 12.5px; }
+    .tips li { display: grid; grid-template-columns: 80px 1fr; gap: 8px; }
+    .tips b { color: var(--text); font-weight: 600; }
+
+    /* ── Stage & preview ── */
+    .stage { position: relative; display: grid; place-items: center; min-height: 0; overflow: auto; padding: 32px; border-radius: 20px; box-shadow: var(--shadow) , inset 0 0 0 1px #ffffff; background: radial-gradient(900px 520px at 12% -10%, #e9ecff 0%, transparent 60%), radial-gradient(800px 520px at 110% 110%, #fbe9f4 0%, transparent 60%), radial-gradient(#dfe3ec 1px, transparent 1.3px) 0 0 / 20px 20px, #f8f9fc; }
+    .stage.dropping::after { content: 'Drop photos to add them'; position: absolute; inset: 14px; display: grid; place-items: center; border: 2px dashed var(--accent); border-radius: 16px; background: color-mix(in srgb, var(--accent-soft) 75%, transparent); color: var(--accent-text); font-size: 16px; font-weight: 650; pointer-events: none; z-index: 4; }
+    .grid { --columns: 2; --gap: 0px; --tile-aspect: 1.333; display: grid; grid-template-columns: repeat(var(--columns), minmax(0, 1fr)); gap: var(--gap); padding: var(--gap); background: #fff; box-shadow: var(--shadow-lg); border-radius: 4px; }
+    .slot { position: relative; aspect-ratio: var(--tile-aspect); overflow: hidden; background: var(--placeholder); touch-action: none; user-select: none; -webkit-user-select: none; }
+    .slot.filled { cursor: grab; }
+    .slot.panning { cursor: grabbing; }
+    .slot.empty { cursor: pointer; display: grid; place-items: center; transition: background .15s; }
+    .slot.empty::before { content: ''; position: absolute; inset: 6px; border: 1.5px dashed var(--placeholder-line); border-radius: 10px; transition: border-color .15s; }
+    .slot.empty:hover { background: var(--accent-soft); }
+    .slot.empty:hover::before { border-color: var(--accent); }
+    .empty-cta { position: relative; display: grid; justify-items: center; gap: 6px; color: var(--faint); font-size: 12px; font-weight: 600; text-align: center; padding: 6px; }
+    .empty-cta svg { width: 24px; height: 24px; }
+    .slot.empty:hover .empty-cta { color: var(--accent-text); }
+    .slot img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; max-width: none; object-fit: cover; display: block; -webkit-user-drag: none; pointer-events: none; }
+    .slot.over { outline: 3px solid var(--accent); outline-offset: -3px; z-index: 2; }
+    .slot.dragging-source { opacity: .3; }
+    .slot.ghost { position: fixed; z-index: 50; pointer-events: none; margin: 0; border-radius: 12px; box-shadow: 0 24px 48px -12px #0f172a66; transform: scale(1.03) rotate(-1deg); }
+    /* Frosted white controls over photos */
+    .overlay { position: absolute; display: flex; align-items: center; gap: 4px; z-index: 1; }
+    .badge { top: 8px; left: 8px; height: 24px; padding: 0 9px; border-radius: 999px; border: 0; background: #ffffffd9; color: var(--text); font-size: 11.5px; font-weight: 650; box-shadow: 0 1px 3px #0f172a26; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+    .slot.filled .badge { cursor: move; transition: background .12s, color .12s, transform .12s; }
+    .slot.filled .badge:hover { background: var(--accent); color: #fff; transform: scale(1.06); }
+    .slot.empty .badge { background: transparent; box-shadow: none; color: var(--faint); cursor: pointer; }
+    .remove { top: 8px; right: 8px; width: 24px; height: 24px; justify-content: center; padding: 0; border: 0; border-radius: 50%; background: #ffffffd9; color: var(--muted); font-size: 15px; line-height: 1; box-shadow: 0 1px 3px #0f172a26; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+    .remove:hover { background: var(--danger); color: #fff; }
+    .zoom-bar { left: 50%; bottom: 9px; transform: translateX(-50%); width: min(160px, 80%); padding: 6px 12px; border-radius: 999px; background: #ffffffd9; box-shadow: 0 1px 3px #0f172a26; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+    .zoom-bar input { margin: 0; height: 14px; }
+    .slot .remove, .slot .zoom-bar { opacity: 0; transition: opacity .15s; }
+    .slot:hover .remove, .slot:hover .zoom-bar, .slot:focus-within .remove, .slot:focus-within .zoom-bar { opacity: 1; }
+    @media (hover: none) { .slot .remove, .slot .zoom-bar { opacity: 1; } }
+
+    /* ── Toast ── */
+    .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translate(-50%, 12px); max-width: min(520px, calc(100vw - 32px)); padding: 11px 18px; border-radius: 999px; background: var(--text); color: #fff; font-weight: 500; box-shadow: 0 16px 40px -12px #0f172a80; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 60; }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .toast.error { background: var(--danger); }
+    .toast.success { background: var(--success); }
+
+    /* ── Narrow screens: preview on top, controls below, page scrolls ── */
+    @media (max-width: 820px) {
+      body { overflow: auto; }
+      .app { height: auto; min-height: 100dvh; }
+      .topbar { position: sticky; top: 0; padding-inline: 14px; }
+      .topbar .chip { display: none; }
+      .workspace { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 0 10px 12px; }
+      .stage { order: -1; padding: 16px; min-height: 0; overflow: visible; border-radius: 16px; }
+      .sidebar { overflow: visible; border-radius: 16px; }
+      .tips-section { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="brandFill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#brandFill)"/><rect x="6" y="6" width="9" height="12" rx="2" fill="#fff"/><rect x="17" y="6" width="9" height="7" rx="2" fill="#fff" opacity=".7"/><rect x="6" y="20" width="9" height="6" rx="2" fill="#fff" opacity=".7"/><rect x="17" y="15" width="9" height="11" rx="2" fill="#fff"/></svg>
+        Collage
+      </div>
+      <div class="spacer"></div>
+      <span class="chip" id="outputChip" title="Size of the exported image">Add photos to begin</span>
+      <button class="btn primary" id="exportButton" disabled>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>
+        <span id="exportLabel">Export</span>
+      </button>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar" aria-label="Collage settings">
+        <section class="section">
+          <div class="section-head"><h2 class="section-title">Photos</h2><span class="section-note" id="fillCount">0 of 4</span></div>
+          <button class="btn soft block" id="addButton" type="button">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>
+            Add photos
+          </button>
+          <p class="hint">Or drop photos anywhere, or paste one with ⌘V / Ctrl+V.</p>
+          <input id="fileInput" type="file" accept="image/*" multiple hidden>
+          <div id="recentsBlock" hidden>
+            <div class="section-head" style="margin: 18px 0 0"><h2 class="section-title">Recent</h2><span class="section-note" id="recentsNote"></span></div>
+            <div class="recents-grid" id="recentsGrid"></div>
+            <p class="hint" id="recentsEmpty">Photos you add show up here next time.</p>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head"><h2 class="section-title">Layout</h2><span class="section-note" id="tileNote"></span></div>
+          <div class="dims">
+            <div>
+              <label class="field-label" for="rows">Rows</label>
+              <div class="stepper"><button type="button" data-step="rows:-1" aria-label="Fewer rows">−</button><input id="rows" type="number" inputmode="numeric" min="1" max="20" value="2"><button type="button" data-step="rows:1" aria-label="More rows">+</button></div>
+            </div>
+            <div>
+              <label class="field-label" for="columns">Columns</label>
+              <div class="stepper"><button type="button" data-step="columns:-1" aria-label="Fewer columns">−</button><input id="columns" type="number" inputmode="numeric" min="1" max="20" value="2"><button type="button" data-step="columns:1" aria-label="More columns">+</button></div>
+            </div>
+          </div>
+          <span class="field-label" id="shapeLabel" style="margin-top: 16px">Box shape</span>
+          <div class="shapes" id="shapes" role="group" aria-labelledby="shapeLabel"></div>
+        </section>
+
+        <section class="section">
+          <div class="section-head"><h2 class="section-title">Border</h2></div>
+          <div class="range-row">
+            <input id="border" type="range" min="0" max="400" value="0" aria-label="White border width">
+            <output id="borderValue" for="border">0 px</output>
+          </div>
+          <p class="hint">White space between and around photos.</p>
+        </section>
+
+        <section class="section tips-section">
+          <div class="section-head"><h2 class="section-title">Tips</h2></div>
+          <ul class="tips">
+            <li><b>Zoom</b>Scroll, pinch, or the slider</li>
+            <li><b>Reframe</b>Drag the photo</li>
+            <li><b>Reset</b>Double-click the photo</li>
+            <li><b>Reorder</b>Drag the ⠿ number badge</li>
+          </ul>
+          <p class="hint">Everything happens on this device. Photos are never uploaded.</p>
+        </section>
+      </aside>
+
+      <main class="stage" id="stage" aria-label="Collage preview">
+        <div class="grid" id="grid"></div>
+      </main>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const MAX_GRID = 20;
+    const MAX_ZOOM = 8;
+    const MAX_RECENTS = 60;
+    const DEFAULT_BORDER_FRACTION = 0.015;
+    const JPEG_QUALITY = 0.95;
+    const SHAPES = [null, [1, 1], [4, 5], [3, 4], [2, 3], [9, 16], [5, 4], [4, 3], [3, 2], [16, 9]];
+
+    // shape is [w, h] or null (match photo 1). firstSize is photo 1's natural size; cellSize is the exported tile size.
+    const state = { files: [null, null, null, null], rows: 2, columns: 2, shape: null, firstSize: null, cellSize: null, borderTouched: false, pickTarget: null };
+    // Keyed by File so framing and identity follow a photo when it's reordered.
+    const crops = new WeakMap();      // File -> { zoom, cx, cy }; cx/cy are the window center as fractions of the photo
+    const sizes = new WeakMap();      // File -> natural size with EXIF rotation applied (browsers apply it to <img> and drawImage alike)
+    const recentIds = new WeakMap();  // File -> recents id
+    const savingRecents = new WeakSet();
+    const objectUrls = new Map();     // File -> object URL, reused across renders so photos don't flicker
+
+    const $ = selector => document.querySelector(selector);
+    const grid = $('#grid'), stage = $('#stage'), fileInput = $('#fileInput');
+    const rowsInput = $('#rows'), columnsInput = $('#columns'), border = $('#border'), borderValue = $('#borderValue');
+    const exportButton = $('#exportButton'), exportLabel = $('#exportLabel'), outputChip = $('#outputChip');
+    const fillCount = $('#fillCount'), tileNote = $('#tileNote'), shapesEl = $('#shapes');
+    const recentsBlock = $('#recentsBlock'), recentsGrid = $('#recentsGrid'), recentsNote = $('#recentsNote'), recentsEmpty = $('#recentsEmpty');
+    const toastEl = $('#toast');
+
+    let toastTimer;
+    function toast(message, tone = '') {
+      clearTimeout(toastTimer);
+      toastEl.textContent = message;
+      toastEl.className = `toast show ${tone}`;
+      toastTimer = setTimeout(() => toastEl.classList.remove('show'), tone === 'error' ? 6000 : 3500);
+    }
+    const capacity = () => state.rows * state.columns;
+    const activeFiles = () => state.files.slice(0, capacity());
+    const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+    const escapeHtml = text => text.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
+    const isImage = file => file && (file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|tiff?|heic|heif|avif|bmp)$/i.test(file.name));
+    function urlFor(file) {
+      if (!objectUrls.has(file)) objectUrls.set(file, URL.createObjectURL(file));
+      return objectUrls.get(file);
+    }
+    async function loadImage(file) {
+      const url = URL.createObjectURL(file);
+      try {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        return img;
+      } finally { URL.revokeObjectURL(url); }
+    }
+
+    /* ───────── Geometry: shared by the preview and the export, so they always match ───────── */
+    function tileAspect() {
+      if (state.cellSize) return state.cellSize.width / state.cellSize.height;
+      return state.shape ? state.shape[0] / state.shape[1] : 4 / 3;
+    }
+    // Largest box of the chosen shape inside photo 1, so photo 1 is never upscaled.
+    function cellSizeFor({ width, height }, shape) {
+      if (!shape) return { width, height };
+      const [w, h] = shape;
+      if (width * h > height * w) return { width: Math.max(1, Math.round(height * w / h)), height };
+      return { width, height: Math.max(1, Math.round(width * h / w)) };
+    }
+    // Source rectangle a tile shows. Zoom 1 is the largest tile-shaped window that fits (a centered "cover" crop).
+    function cropBox(size, crop) {
+      const { width, height } = size;
+      const aspect = tileAspect();
+      const wide = width / height > aspect;
+      // min() absorbs float error: width / (width / height) can exceed height by ~1e-13.
+      const w = Math.min((wide ? height * aspect : width) / crop.zoom, width);
+      const h = Math.min((wide ? height : width / aspect) / crop.zoom, height);
+      // Clamp so panning can never reveal empty space beyond the photo's edges.
+      const left = clamp(crop.cx * width - w / 2, 0, width - w);
+      const top = clamp(crop.cy * height - h / 2, 0, height - h);
+      return { left, top, w, h };
+    }
+    function outputSize() {
+      if (!state.cellSize) return null;
+      const b = Number(border.value);
+      return {
+        width: state.cellSize.width * state.columns + b * (state.columns + 1),
+        height: state.cellSize.height * state.rows + b * (state.rows + 1),
+      };
+    }
+
+    /* ───────── Preview ───────── */
+    function cropFor(file) {
+      if (!crops.has(file)) crops.set(file, { zoom: 1, cx: 0.5, cy: 0.5 });
+      return crops.get(file);
+    }
+    function applyCrop(slot, file) {
+      const img = slot && slot.querySelector('img');
+      const size = sizes.get(file);
+      if (!img || !size) return;
+      const box = cropBox(size, cropFor(file));
+      img.style.width = `${size.width / box.w * 100}%`;
+      img.style.height = `${size.height / box.h * 100}%`;
+      img.style.left = `${-box.left / box.w * 100}%`;
+      img.style.top = `${-box.top / box.h * 100}%`;
+      slot.querySelector('.zoom').value = cropFor(file).zoom;
+    }
+    function applyAllCrops() {
+      grid.querySelectorAll('.slot').forEach(slot => { const file = state.files[slot.dataset.index]; if (file) applyCrop(slot, file); });
+    }
+    function setDefaultBorder() {
+      if (state.borderTouched || !state.cellSize) return;
+      // Solve b = f × output width, where output width = tile width × columns + b × (columns + 1).
+      const f = DEFAULT_BORDER_FRACTION;
+      border.value = Math.min(400, Math.round(f * state.cellSize.width * state.columns / (1 - f * (state.columns + 1))));
+    }
+    // Fit the whole collage inside the stage (width and height) and scale the border to match the export.
+    function layoutStage() {
+      const out = outputSize();
+      const aspect = out ? out.width / out.height : state.columns * tileAspect() / state.rows;
+      const style = getComputedStyle(stage);
+      const availableWidth = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const narrow = matchMedia('(max-width: 820px)').matches;
+      const availableHeight = narrow ? Infinity : stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      const width = Math.max(120, Math.min(availableWidth, availableHeight * aspect));
+      grid.style.width = `${width}px`;
+      grid.style.setProperty('--columns', state.columns);
+      grid.style.setProperty('--tile-aspect', tileAspect());
+      grid.style.setProperty('--gap', `${out ? Number(border.value) * width / out.width : 0}px`);
+    }
+    function updateInfo() {
+      const b = Number(border.value);
+      borderValue.value = `${b} px`;
+      const out = outputSize();
+      outputChip.textContent = out ? `${out.width.toLocaleString()} × ${out.height.toLocaleString()} px` : 'Add photos to begin';
+      tileNote.textContent = state.cellSize ? `tiles ${state.cellSize.width} × ${state.cellSize.height}` : '';
+      const filled = activeFiles().filter(Boolean).length;
+      fillCount.textContent = `${filled} of ${capacity()}`;
+      exportButton.disabled = filled < capacity();
+      exportButton.title = exportButton.disabled ? `Fill all ${capacity()} boxes to export` : 'Save the collage as a JPEG';
+    }
+    function updateCellSize() {
+      state.cellSize = state.firstSize ? cellSizeFor(state.firstSize, state.shape) : null;
+      setDefaultBorder();
+      layoutStage();
+      updateInfo();
+      applyAllCrops();
+    }
+    function syncFirstSize() {
+      const first = activeFiles()[0];
+      const size = (first && sizes.get(first)) || null;
+      if (size?.width === state.firstSize?.width && size?.height === state.firstSize?.height) return;
+      state.firstSize = size;
+      renderShapes();
+      updateCellSize();
+    }
+    function renderShapes() {
+      shapesEl.innerHTML = '';
+      SHAPES.forEach(shape => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'shape';
+        button.setAttribute('aria-pressed', String(shape === state.shape));
+        const [w, h] = shape || (state.firstSize ? [state.firstSize.width, state.firstSize.height] : [4, 3]);
+        const scale = 18 / Math.max(w, h);
+        button.innerHTML = `<i style="width:${Math.max(5, w * scale)}px;height:${Math.max(5, h * scale)}px"></i>${shape ? `${w}:${h}` : 'Photo 1'}`;
+        button.title = shape ? `${w}:${h} boxes` : 'Match photo 1’s shape';
+        button.addEventListener('click', () => { state.shape = shape; renderShapes(); updateCellSize(); });
+        shapesEl.append(button);
+      });
+    }
+
+    const PLUS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg>';
+    function render() {
+      grid.innerHTML = '';
+      const files = activeFiles();
+      files.forEach((file, index) => {
+        const slot = document.createElement('div');
+        slot.className = `slot ${file ? 'filled' : 'empty'}`;
+        slot.dataset.index = index;
+        if (file) {
+          const img = document.createElement('img');
+          img.alt = `Photo ${index + 1}: ${file.name}`;
+          img.draggable = false;
+          img.onload = () => {
+            sizes.set(file, { width: img.naturalWidth, height: img.naturalHeight });
+            applyCrop(slot, file);
+            if (index === 0) syncFirstSize();
+          };
+          img.onerror = () => toast(`${file.name} couldn’t be opened. This browser may not support that format.`, 'error');
+          img.src = urlFor(file);
+          slot.append(img);
+          slot.insertAdjacentHTML('beforeend',
+            `<button type="button" class="overlay badge" title="Drag to reorder" aria-label="Photo ${index + 1}, drag to reorder">⠿ ${index + 1}</button>`
+            + `<button type="button" class="overlay remove" aria-label="Remove photo ${index + 1}" title="Remove">×</button>`
+            + `<div class="overlay zoom-bar"><input class="zoom" type="range" min="1" max="${MAX_ZOOM}" step="0.01" value="${cropFor(file).zoom}" aria-label="Zoom photo ${index + 1}"></div>`);
+          applyCrop(slot, file);
+          slot.querySelector('.zoom').addEventListener('input', event => zoomAt(index, Number(event.target.value)));
+          slot.querySelector('.remove').addEventListener('click', () => { state.files[index] = null; render(); });
+          slot.addEventListener('wheel', event => {
+            if (!sizes.has(file)) return;
+            event.preventDefault();
+            const rect = slot.getBoundingClientRect();
+            const delta = event.deltaY * (event.deltaMode === 1 ? 16 : 1);
+            // Trackpad pinch arrives as ctrl+wheel with small deltas, so it needs a larger gain.
+            const gain = event.ctrlKey ? 0.01 : 0.002;
+            zoomAt(index, cropFor(file).zoom * Math.exp(-delta * gain), (event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
+          }, { passive: false });
+          slot.addEventListener('dblclick', event => { if (!event.target.closest('.overlay')) setCrop(index, { zoom: 1, cx: 0.5, cy: 0.5 }); });
+          slot.addEventListener('pointerdown', event => {
+            // A second finger joins the gesture already running on this box (see startGesture).
+            if (event.button !== 0 || slot.classList.contains('panning') || event.target.closest('.remove, .zoom-bar')) return;
+            if (event.target.closest('.badge')) startReorder(event, index, slot);
+            else startGesture(event, index, slot);
+          });
+        } else {
+          slot.innerHTML = `<span class="overlay badge">${index + 1}</span><div class="empty-cta">${PLUS_ICON}<span>Add photo</span></div>`;
+          slot.addEventListener('click', () => { state.pickTarget = index; fileInput.click(); });
+        }
+        // A file dragged from the desktop onto a specific box goes into that box.
+        slot.addEventListener('dragover', event => { event.preventDefault(); slot.classList.add('over'); });
+        slot.addEventListener('dragleave', () => slot.classList.remove('over'));
+        slot.addEventListener('drop', event => {
+          event.preventDefault();
+          event.stopPropagation();
+          slot.classList.remove('over');
+          stage.classList.remove('dropping');
+          dragDepth = 0;
+          const dropped = [...event.dataTransfer.files].find(isImage);
+          if (dropped) { state.files[index] = dropped; render(); }
+        });
+        grid.append(slot);
+      });
+      // Release object URLs for photos no longer in the grid.
+      for (const [file, url] of objectUrls) if (!files.includes(file)) { URL.revokeObjectURL(url); objectUrls.delete(file); }
+      layoutStage();
+      updateInfo();
+      syncFirstSize();
+      markUsedRecents();
+      saveNewToRecents();
+    }
+
+    /* ───────── Framing: zoom & pan ───────── */
+    function setCrop(index, crop) {
+      const file = state.files[index];
+      const size = sizes.get(file);
+      if (!size) return;
+      crop.zoom = clamp(crop.zoom, 1, MAX_ZOOM);
+      // Store the clamped center so a later pan starts from what's on screen, not from past the edge.
+      const box = cropBox(size, crop);
+      crop.cx = (box.left + box.w / 2) / size.width;
+      crop.cy = (box.top + box.h / 2) / size.height;
+      crops.set(file, crop);
+      applyCrop(grid.querySelector(`.slot[data-index="${index}"]`), file);
+    }
+    // Zoom while keeping the photo point under (px, py) — fractions of the tile — fixed on screen.
+    function zoomAt(index, zoom, px = 0.5, py = 0.5) {
+      const file = state.files[index];
+      const size = sizes.get(file);
+      if (!size) return;
+      const current = cropFor(file);
+      const box = cropBox(size, current);
+      zoom = clamp(zoom, 1, MAX_ZOOM);
+      const w = box.w * current.zoom / zoom, h = box.h * current.zoom / zoom;
+      const x = box.left + px * (box.w - w), y = box.top + py * (box.h - h);
+      setCrop(index, { zoom, cx: (x + w / 2) / size.width, cy: (y + h / 2) / size.height });
+    }
+    // One pointer pans; two pointers (touch screens) pinch-zoom around their midpoint.
+    function startGesture(event, index, slot) {
+      const file = state.files[index];
+      if (!sizes.has(file)) return;
+      event.preventDefault();
+      const pointers = new Map([[event.pointerId, { x: event.clientX, y: event.clientY }]]);
+      let pan = null, pinch = null;
+      const beginPan = point => { pan = { x: point.x, y: point.y, zoom: cropFor(file).zoom, box: cropBox(sizes.get(file), cropFor(file)) }; };
+      const distance = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+      beginPan(pointers.get(event.pointerId));
+      slot.classList.add('panning');
+      function onDown(down) {
+        if (pointers.size >= 2) return;
+        pointers.set(down.pointerId, { x: down.clientX, y: down.clientY });
+        if (pointers.size === 2) { pan = null; pinch = { distance: distance(), zoom: cropFor(file).zoom }; }
+      }
+      function onMove(move) {
+        if (!pointers.has(move.pointerId)) return;
+        pointers.set(move.pointerId, { x: move.clientX, y: move.clientY });
+        const rect = slot.getBoundingClientRect();
+        const size = sizes.get(file);
+        if (pinch) {
+          const [a, b] = [...pointers.values()];
+          zoomAt(index, pinch.zoom * distance() / pinch.distance, ((a.x + b.x) / 2 - rect.left) / rect.width, ((a.y + b.y) / 2 - rect.top) / rect.height);
+        } else if (pan) {
+          const dx = (move.clientX - pan.x) / rect.width * pan.box.w;
+          const dy = (move.clientY - pan.y) / rect.height * pan.box.h;
+          setCrop(index, { zoom: pan.zoom, cx: (pan.box.left + pan.box.w / 2 - dx) / size.width, cy: (pan.box.top + pan.box.h / 2 - dy) / size.height });
+        }
+      }
+      function onUp(up) {
+        pointers.delete(up.pointerId);
+        if (pointers.size === 1) { pinch = null; beginPan([...pointers.values()][0]); }
+        if (pointers.size) return;
+        slot.classList.remove('panning');
+        slot.removeEventListener('pointerdown', onDown);
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onUp);
+      }
+      slot.addEventListener('pointerdown', onDown);
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('pointercancel', onUp);
+    }
+
+    /* ───────── Reorder by dragging the number badge ───────── */
+    function startReorder(event, index, slotEl) {
+      event.preventDefault();
+      const rect = slotEl.getBoundingClientRect();
+      const offsetX = event.clientX - rect.left, offsetY = event.clientY - rect.top;
+      const ghost = slotEl.cloneNode(true);
+      ghost.className = 'slot filled ghost';
+      Object.assign(ghost.style, { width: `${rect.width}px`, height: `${rect.height}px`, left: `${rect.left}px`, top: `${rect.top}px` });
+      document.body.append(ghost);
+      slotEl.classList.add('dragging-source');
+      let over = null;
+      function onMove(move) {
+        ghost.style.left = `${move.clientX - offsetX}px`;
+        ghost.style.top = `${move.clientY - offsetY}px`;
+        const hit = document.elementFromPoint(move.clientX, move.clientY);
+        const target = hit && hit.closest('#grid .slot');
+        const next = target && target !== slotEl ? target : null;
+        if (next !== over) { over?.classList.remove('over'); over = next; over?.classList.add('over'); }
+      }
+      function onUp() {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onUp);
+        ghost.remove();
+        slotEl.classList.remove('dragging-source');
+        if (!over) return;
+        const target = Number(over.dataset.index);
+        [state.files[index], state.files[target]] = [state.files[target], state.files[index]];
+        render();
+      }
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('pointercancel', onUp);
+    }
+
+    /* ───────── Adding photos & grid size ───────── */
+    function addFiles(list) {
+      const files = [...list].filter(isImage);
+      if (!files.length) return;
+      const open = activeFiles().map((file, i) => file ? -1 : i).filter(i => i >= 0);
+      files.slice(0, open.length).forEach((file, i) => { state.files[open[i]] = file; });
+      if (files.length > open.length) {
+        toast(open.length ? `Added ${open.length}; the other ${files.length - open.length} didn’t fit. Add rows or columns for more.` : 'Every box is full. Remove a photo or add rows or columns.', 'error');
+      }
+      render();
+    }
+    function setGridDimensions(rows, columns) {
+      const oldColumns = state.columns;
+      const oldFiles = activeFiles();
+      state.rows = clamp(Math.floor(Number(rows)) || 1, 1, MAX_GRID);
+      state.columns = clamp(Math.floor(Number(columns)) || 1, 1, MAX_GRID);
+      rowsInput.value = state.rows;
+      columnsInput.value = state.columns;
+      // Keep each photo at the same (row, column) where it still fits; the rest fill the first empty boxes.
+      const next = new Array(capacity()).fill(null);
+      const orphans = [];
+      oldFiles.forEach((file, index) => {
+        if (!file) return;
+        const row = Math.floor(index / oldColumns), col = index % oldColumns;
+        if (row < state.rows && col < state.columns) next[row * state.columns + col] = file;
+        else orphans.push(file);
+      });
+      orphans.forEach(file => { const free = next.indexOf(null); if (free >= 0) next[free] = file; });
+      state.files = next;
+      if (!state.borderTouched) setDefaultBorder();
+      render();
+    }
+
+    /* ───────── Recents (IndexedDB, on this device only) ───────── */
+    let dbPromise;
+    function openDb() {
+      dbPromise ??= new Promise((resolve, reject) => {
+        const request = indexedDB.open('collage', 1);
+        request.onupgradeneeded = () => request.result.createObjectStore('recents', { keyPath: 'id' });
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      return dbPromise;
+    }
+    async function store(mode, operation) {
+      const db = await openDb();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction('recents', mode);
+        const request = operation(transaction.objectStore('recents'));
+        transaction.oncomplete = () => resolve(request.result);
+        transaction.onerror = transaction.onabort = () => reject(transaction.error);
+      });
+    }
+    // Content hash, so the same photo added twice is one recent. crypto.subtle needs a secure context;
+    // without one, fall back to name + size + date, which still dedupes re-adding the same file.
+    async function photoId(file) {
+      if (globalThis.crypto?.subtle) {
+        const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+        return [...new Uint8Array(digest).slice(0, 8)].map(b => b.toString(16).padStart(2, '0')).join('');
+      }
+      let hash = 0x811c9dc5;
+      for (const ch of `${file.name}|${file.size}|${file.lastModified}`) hash = Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0;
+      return `k${hash.toString(16)}`;
+    }
+    async function makeThumb(file) {
+      const img = await loadImage(file);
+      const side = 240, scale = side / Math.min(img.naturalWidth, img.naturalHeight);
+      const canvas = Object.assign(document.createElement('canvas'), { width: side, height: side });
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
+      ctx.drawImage(img, (side - w) / 2, (side - h) / 2, w, h);
+      return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.82));
+    }
+    async function saveRecent(file) {
+      const id = await photoId(file);
+      const existing = await store('readonly', s => s.get(id));
+      const record = existing ? { ...existing, used: Date.now() } : { id, name: file.name, type: file.type, blob: file, thumb: await makeThumb(file), used: Date.now() };
+      await store('readwrite', s => s.put(record));
+      const all = await store('readonly', s => s.getAll());
+      const stale = all.sort((a, b) => b.used - a.used).slice(MAX_RECENTS);
+      if (stale.length) await store('readwrite', s => { stale.forEach(r => s.delete(r.id)); return s.count(); });
+      return id;
+    }
+    // Called from render(), so every way a photo enters the grid (picker, drop, paste, box click) is covered.
+    function saveNewToRecents() {
+      if (recentsBlock.hidden) return;
+      activeFiles().forEach(async file => {
+        if (!file || recentIds.has(file) || savingRecents.has(file)) return;
+        savingRecents.add(file);
+        try {
+          recentIds.set(file, await saveRecent(file));
+          loadRecents();
+        } catch (error) {
+          if (error?.name === 'QuotaExceededError') toast('Recents are full for this browser’s storage. Remove a few to make room.', 'error');
+        } finally { savingRecents.delete(file); }
+      });
+    }
+    const thumbUrls = [];
+    async function loadRecents() {
+      let items;
+      try { items = await store('readonly', s => s.getAll()); }
+      catch { recentsBlock.hidden = true; return; }  // e.g. storage blocked for local files in some browsers
+      recentsBlock.hidden = false;
+      items.sort((a, b) => b.used - a.used);
+      thumbUrls.splice(0).forEach(url => URL.revokeObjectURL(url));
+      recentsGrid.innerHTML = '';
+      recentsNote.textContent = items.length ? String(items.length) : '';
+      recentsEmpty.hidden = items.length > 0;
+      items.forEach(item => {
+        const url = URL.createObjectURL(item.thumb);
+        thumbUrls.push(url);
+        const name = escapeHtml(item.name);
+        const entry = document.createElement('div');
+        entry.className = 'recent';
+        entry.innerHTML = `<button type="button" class="recent-pick" data-id="${item.id}" title="${name}"><img src="${url}" alt="${name}"></button>`
+          + `<button type="button" class="recent-remove" aria-label="Remove ${name} from recents" title="Remove from recents">×</button>`;
+        entry.querySelector('.recent-pick').addEventListener('click', () => toggleRecent(item));
+        entry.querySelector('.recent-remove').addEventListener('click', () => removeRecent(item));
+        recentsGrid.append(entry);
+      });
+      markUsedRecents();
+    }
+    function markUsedRecents() {
+      const used = new Set(activeFiles().filter(Boolean).map(file => recentIds.get(file)));
+      recentsGrid.querySelectorAll('.recent-pick').forEach(button => button.classList.toggle('used', used.has(button.dataset.id)));
+    }
+    // Clicking a recent that's already in the grid takes it back out, so the strip works as a toggle.
+    function toggleRecent(item) {
+      const inGrid = activeFiles().findIndex(file => file && recentIds.get(file) === item.id);
+      if (inGrid >= 0) { state.files[inGrid] = null; render(); return; }
+      if (!activeFiles().includes(null)) { toast('Every box is full. Remove a photo or add rows or columns.', 'error'); return; }
+      const file = new File([item.blob], item.name, { type: item.type || item.blob.type });
+      recentIds.set(file, item.id);
+      addFiles([file]);
+      store('readwrite', s => s.put({ ...item, used: Date.now() })).catch(() => {});
+    }
+    // Forgets the copy kept by this app; photos already in the grid stay put.
+    async function removeRecent(item) {
+      try { await store('readwrite', s => s.delete(item.id)); }
+      catch { toast(`Couldn’t remove ${item.name} from recents.`, 'error'); }
+      loadRecents();
+    }
+
+    /* ───────── Export ───────── */
+    // Browsers cap canvas size (iPhone Safari is ~16.7 MP), and an oversized canvas fails silently,
+    // so probe by drawing into the last pixel and shrink until it reads back.
+    function makeCanvas(width, height) {
+      const canvas = Object.assign(document.createElement('canvas'), { width, height });
+      try {
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(width - 1, height - 1, 1, 1);
+        if (ctx.getImageData(width - 1, height - 1, 1, 1).data[3] === 255) { ctx.fillStyle = '#fff'; ctx.fillRect(width - 1, height - 1, 1, 1); return canvas; }
+      } catch { /* fall through */ }
+      canvas.width = canvas.height = 0;
+      return null;
+    }
+    // Halve in steps before the final draw: a single large downscale skips pixels and looks jagged.
+    function drawSmooth(ctx, source, box, dx, dy, dw, dh) {
+      let src = source, { left: sx, top: sy, w: sw, h: sh } = box;
+      while (sw > dw * 2 && sh > dh * 2) {
+        const step = Object.assign(document.createElement('canvas'), { width: Math.ceil(sw / 2), height: Math.ceil(sh / 2) });
+        const stepCtx = step.getContext('2d');
+        stepCtx.imageSmoothingQuality = 'high';
+        stepCtx.drawImage(src, sx, sy, sw, sh, 0, 0, step.width, step.height);
+        src = step; sx = 0; sy = 0; sw = step.width; sh = step.height;
+      }
+      ctx.drawImage(src, sx, sy, sw, sh, dx, dy, dw, dh);
+    }
+    async function renderCollage(onProgress = () => {}) {
+      const out = outputSize();
+      const b = Number(border.value), cell = state.cellSize;
+      let scale = Math.min(1, 16384 / Math.max(out.width, out.height));
+      let canvas = null;
+      while (!(canvas = makeCanvas(Math.round(out.width * scale), Math.round(out.height * scale)))) {
+        scale *= 0.8;
+        if (scale < 0.02) throw new Error('This browser can’t make an image that large. Try fewer rows or columns.');
+      }
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      const files = activeFiles();
+      for (const [index, file] of files.entries()) {
+        const row = Math.floor(index / state.columns), col = index % state.columns;
+        // Round each edge (not each size) so scaled tiles tile exactly with no hairline gaps.
+        const x0 = Math.round((b + col * (cell.width + b)) * scale), x1 = Math.round((b + col * (cell.width + b) + cell.width) * scale);
+        const y0 = Math.round((b + row * (cell.height + b)) * scale), y1 = Math.round((b + row * (cell.height + b) + cell.height) * scale);
+        const img = await loadImage(file);
+        const size = { width: img.naturalWidth, height: img.naturalHeight };
+        drawSmooth(ctx, img, cropBox(size, cropFor(file)), x0, y0, x1 - x0, y1 - y0);
+        onProgress(index + 1, files.length);
+      }
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY));
+      canvas.width = canvas.height = 0;
+      if (!blob) throw new Error('The image couldn’t be encoded. Try fewer rows or columns.');
+      return { blob, width: Math.round(out.width * scale), height: Math.round(out.height * scale), scaled: scale < 1 };
+    }
+    async function exportCollage() {
+      exportButton.disabled = true;
+      exportButton.classList.add('working');
+      try {
+        const { blob, width, height, scaled } = await renderCollage((done, total) => { exportLabel.textContent = `${done} / ${total}`; });
+        const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
+        const name = `Collage ${stamp}.jpg`;
+        const file = new File([blob], name, { type: 'image/jpeg' });
+        // On phones and tablets the share sheet is the way to "Save Image" into Photos. Safari refuses it
+        // (NotAllowedError) if rendering took long enough to lose the tap's activation; then just download.
+        let shared = false;
+        if (matchMedia('(pointer: coarse)').matches && navigator.canShare?.({ files: [file] })) {
+          try { await navigator.share({ files: [file] }); shared = true; }
+          catch (error) { if (error.name === 'AbortError') return; }
+        }
+        if (!shared) {
+          const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
+          // Safari needs the link in the document and the URL alive briefly after click().
+          document.body.append(link);
+          link.click();
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+        }
+        toast(scaled ? `Saved at ${width} × ${height}, reduced to fit this browser’s limit.` : `Saved ${name}`, 'success');
+      } catch (error) {
+        toast(error.message || 'Something went wrong while exporting.', 'error');
+      } finally {
+        exportButton.classList.remove('working');
+        exportLabel.textContent = 'Export';
+        updateInfo();
+      }
+    }
+
+    /* ───────── Wiring ───────── */
+    $('#addButton').addEventListener('click', () => { state.pickTarget = null; fileInput.click(); });
+    fileInput.addEventListener('change', () => {
+      if (state.pickTarget !== null) {
+        const file = [...fileInput.files].find(isImage);
+        if (file) { state.files[state.pickTarget] = file; render(); }
+        state.pickTarget = null;
+      } else {
+        addFiles(fileInput.files);
+      }
+      fileInput.value = '';
+    });
+    document.querySelectorAll('[data-step]').forEach(button => button.addEventListener('click', () => {
+      const [which, delta] = button.dataset.step.split(':');
+      if (which === 'rows') setGridDimensions(state.rows + Number(delta), state.columns);
+      else setGridDimensions(state.rows, state.columns + Number(delta));
+    }));
+    rowsInput.addEventListener('change', () => setGridDimensions(rowsInput.value, state.columns));
+    columnsInput.addEventListener('change', () => setGridDimensions(state.rows, columnsInput.value));
+    border.addEventListener('input', () => { state.borderTouched = true; layoutStage(); updateInfo(); });
+    exportButton.addEventListener('click', exportCollage);
+    new ResizeObserver(layoutStage).observe(stage);
+
+    // Dropping anywhere adds photos; dropping onto a specific box (handled there) replaces that box.
+    let dragDepth = 0;
+    const hasFiles = event => [...(event.dataTransfer?.types || [])].includes('Files');
+    window.addEventListener('dragenter', event => { if (hasFiles(event)) { dragDepth += 1; stage.classList.add('dropping'); } });
+    window.addEventListener('dragleave', event => { if (hasFiles(event) && --dragDepth <= 0) { dragDepth = 0; stage.classList.remove('dropping'); } });
+    window.addEventListener('dragover', event => event.preventDefault());
+    window.addEventListener('drop', event => {
+      event.preventDefault();
+      dragDepth = 0;
+      stage.classList.remove('dropping');
+      addFiles(event.dataTransfer.files);
+    });
+    document.addEventListener('paste', event => {
+      const files = [...(event.clipboardData?.files || [])].filter(isImage);
+      if (files.length) { event.preventDefault(); addFiles(files); }
+    });
+
+    renderShapes();
+    render();
+    loadRecents();
+    navigator.storage?.persist?.().catch(() => {});
+  </script>
+</body>
+</html>
