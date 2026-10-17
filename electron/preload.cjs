@@ -13,7 +13,8 @@ contextBridge.exposeInMainWorld('api', {
   writeFile: (path, data, options) => invoke('file:write', path, data, options),
   exists: (path) => invoke('file:exists', path),
   revealInFolder: (path) => ipcRenderer.send('file:reveal', path),
-  saveProject: (json, suggestedName) => invoke('project:save', json, suggestedName),
+  saveProject: (json, suggestedName, sidecar) => invoke('project:save', json, suggestedName, sidecar),
+  setDirty: (dirty) => ipcRenderer.send('app:set-dirty', dirty === true),
   openProject: () => invoke('project:open'),
   makeVideo: (job) => invoke('video:make', job),
   onVideoProgress: (cb) => {

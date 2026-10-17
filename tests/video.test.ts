@@ -90,6 +90,32 @@ describe('video', () => {
     expect(Math.abs(probe(out).duration - 4)).toBeLessThan(0.15);
   }, 60000);
 
+  it('concat followed by xfade keeps timebases compatible', async () => {
+    expect(video.buildArgs({ ...base(), transitions: ['none', 'crossfade'] }, { width: 320, height: 400 }, { frames: ['a', 'b', 'c'], output: 'o.mp4' })
+      .join(' ')).toContain('concat=n=2:v=1:a=0,settb=1/24');
+    const fr = [jpeg('red'), jpeg('green'), jpeg('blue'), jpeg('yellow')];
+    for (const transitions of [['none', 'slide', 'none'], ['crossfade', 'none', 'slide']]) {
+      const out = path.join(dir, `tb-${transitions.join('-')}.mp4`);
+      await video.makeVideo({ ...base(), frames: fr, durations: [1, 1, 1, 1], transitions, kenBurns: false, output: out }, () => {});
+      expect(Math.abs(probe(out).duration - 4)).toBeLessThan(0.15);
+    }
+  }, 120000);
+
+  it('cancel() resolves after cleanup', async () => {
+    expect(await video.cancel()).toBeUndefined();
+    const out = path.join(dir, 'cc.mp4');
+    let started: () => void;
+    const gotProgress = new Promise<void>((r) => (started = r));
+    const p = video.makeVideo({ ...base(), durations: [20, 20, 20], output: out }, () => started());
+    const settled = p.then(() => null, (e: Error) => e);
+    await Promise.race([gotProgress, new Promise((r) => setTimeout(r, 15000))]);
+    expect(video.isRunning()).toBe(true);
+    await video.cancel();
+    expect(video.isRunning()).toBe(false);
+    expect(fs.readdirSync(dir).filter((f) => f.includes('partial'))).toEqual([]);
+    expect((await settled).name).toBe('AbortError');
+  }, 60000);
+
   it('rejects bad per-boundary arrays', async () => {
     const out = path.join(dir, 'b.mp4');
     await expect(video.makeVideo({ ...base(), transitions: ['slide'], output: out }, () => {})).rejects.toThrow(/transitions/);

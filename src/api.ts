@@ -1,5 +1,8 @@
 export interface VideoJob {
+  /** Output path; empty asks the user with a save dialog. */
   output: string;
+  /** Default file name in that dialog. */
+  suggestedName?: string;
   frames: Uint8Array[];
   durations: number[];
   transition: 'none' | 'crossfade';
@@ -12,6 +15,9 @@ export interface VideoJob {
   audioPath?: string;
   fps: number;
 }
+
+/** A photo that has no file on disk (pasted, sent from Collage); saved beside the project so it can be found again. */
+export interface SidecarPhoto { id: string; name: string; data: Uint8Array }
 
 export interface FileFilter { name: string; extensions: string[] }
 
@@ -31,7 +37,13 @@ export interface Api {
   onVideoProgress(cb: (fraction: number) => void): () => void;
   cancelVideo(): Promise<void>;
   revealInFolder(path: string): void;
-  saveProject(json: string, suggestedName: string): Promise<string | null>;
+  /**
+   * Saves the project JSON. `sidecar` photos are written to `<project name> Photos/` next to it and their
+   * `path` in the JSON becomes that relative path. Resolves to the saved path, or null if cancelled.
+   */
+  saveProject(json: string, suggestedName: string, sidecar?: SidecarPhoto[]): Promise<string | null>;
+  /** Tells the main process whether there is unsaved Story work (asks before closing or quitting). */
+  setDirty(dirty: boolean): void;
   openProject(): Promise<{ path: string; json: string } | null>;
 }
 
@@ -82,6 +94,7 @@ const browserApi: Api = {
   makeVideo: unsupported('Making video'),
   onVideoProgress: () => () => {},
   cancelVideo: async () => {},
+  setDirty: () => {},
   revealInFolder: () => {},
   async saveProject(json, suggestedName) {
     download(json, suggestedName, 'application/json');

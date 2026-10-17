@@ -5,7 +5,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { ffmpegPath } = require('./ffmpeg-path.cjs');
 
-let current = null; // { proc, cancelled, killTimer }
+let current = null; // { proc, cancelled, killTimer, done }
 
 function abortError() {
   const e = new Error('Video export cancelled');
@@ -118,7 +118,7 @@ function buildArgs(job, size, paths) {
       offset += durations[i - 1];
       const out = i === n - 1 ? 'vout' : `x${i}`;
       const kind = kinds[i - 1];
-      if (kind === 'none') filters.push(`[${acc}][v${i}]concat=n=2:v=1:a=0[${out}]`);
+      if (kind === 'none') filters.push(`[${acc}][v${i}]concat=n=2:v=1:a=0,settb=1/${fps}[${out}]`);
       else {
         const name = kind === 'slide' ? 'slideleft' : 'fade';
         filters.push(`[${acc}][v${i}]xfade=transition=${name}:duration=${num(T)}:offset=${num(offset)}[${out}]`);
@@ -149,7 +149,8 @@ async function rmQuiet(p, opts) {
 
 async function makeVideo(job, onProgress) {
   if (current) throw new Error('A video export is already running');
-  const state = { proc: null, cancelled: false, killTimer: null };
+  const state = { proc: null, cancelled: false, killTimer: null, done: null, finish: null };
+  state.done = new Promise((resolve) => { state.finish = resolve; });
   current = state;
   let tmpDir = null;
   let partial = null;
@@ -180,6 +181,7 @@ async function makeVideo(job, onProgress) {
         proc = spawn(ffmpegPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
       } catch (e) { reject(e); return; }
       state.proc = proc;
+      if (state.cancelled) { try { proc.kill('SIGKILL'); } catch { /* ignore */ } }
       let errTail = '';
       let buf = '';
       let lastEmit = 0;
@@ -220,18 +222,23 @@ async function makeVideo(job, onProgress) {
     if (partial) await rmQuiet(partial);
     if (tmpDir) await rmQuiet(tmpDir);
     if (current === state) current = null;
+    state.finish();
   }
 }
 
+/** Stops the running job; the promise resolves once ffmpeg has exited and temp files are removed. */
 function cancel() {
   const state = current;
-  if (!state) return;
+  if (!state) return Promise.resolve();
   state.cancelled = true;
   const proc = state.proc;
   if (proc && proc.exitCode === null && proc.signalCode === null) {
     try { proc.kill('SIGTERM'); } catch { /* ignore */ }
     state.killTimer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch { /* ignore */ } }, 2000);
   }
+  return state.done;
 }
 
-module.exports = { makeVideo, cancel, buildArgs, probeJpegSize, validate };
+function isRunning() { return current !== null; }
+
+module.exports = { makeVideo, cancel, isRunning, buildArgs, probeJpegSize, validate };

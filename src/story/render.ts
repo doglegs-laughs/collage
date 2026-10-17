@@ -1,16 +1,23 @@
 import { drawPhotoCropped } from '../core/canvas';
+import { cropBox } from '../core/geometry';
 import { fontShorthand, LINE_HEIGHT } from './fonts';
 import { elementsVisibleOnPage, findPhoto, pageSize, sortByZ, type El, type PhotoEl, type RectEl, type Story, type TextEl, type VisibleEl } from './model';
 import type { Photo } from '../core/images';
 
 export type Bitmap = ImageBitmap;
-export type GetBitmap = (photo: Photo) => Promise<Bitmap | null> | Bitmap | null;
+/** `neededEdge` is the long edge (px) the photo needs for this draw; callers that cache one bitmap per photo may ignore it. */
+export type GetBitmap = (photo: Photo, neededEdge?: number) => Promise<Bitmap | null> | Bitmap | null;
 export type PageCanvas = HTMLCanvasElement | OffscreenCanvas;
 export type RenderOpts = {
   /** Override canvas creation (tests, workers). */
   createCanvas?: (w: number, h: number) => PageCanvas;
   /** Draw placeholder slots (default true). */
   placeholders?: boolean;
+  /**
+   * The caller hands out bitmaps it owns: each photo element asks `getBitmap` for just its own bitmap (sized to its need),
+   * and it is closed right after that element is drawn, so only one is alive at a time.
+   */
+  closeAfterDraw?: boolean;
 };
 
 export type Px = { x: number; y: number; w: number; h: number };
@@ -38,6 +45,19 @@ export function layoutElementPx(el: El, pageW: number, pageH: number): ElementPx
       : outer;
   return { outer, inner, frame, frameBottom, rotation: el.rotation, cx: outer.x + outer.w / 2, cy: outer.y + outer.h / 2 };
 }
+/**
+ * Long edge (px) a photo must be decoded at so this element's crop window is drawn without upscaling:
+ * the inner box size divided by the fraction of the photo the crop shows, capped at the original.
+ */
+export function neededPhotoEdge(el: PhotoEl, photo: { width: number; height: number }, pageW: number, pageH: number): number {
+  const { inner } = layoutElementPx(el, pageW, pageH);
+  const long = Math.max(photo.width, photo.height);
+  if (inner.w <= 0 || inner.h <= 0 || !(photo.width > 0) || !(photo.height > 0)) return long;
+  const box = cropBox(photo, el.crop, inner.w / inner.h);
+  const pxPerSource = Math.min(1, Math.max(inner.w / box.w, inner.h / box.h));
+  return Math.max(1, Math.min(long, Math.ceil(long * pxPerSource)));
+}
+
 /** Drop shadow parameters in px (shared with the editor's CSS box-shadow). */
 export const shadowPx = (pageW: number) => ({ blur: 0.03 * pageW, offsetY: 0.01 * pageW, color: 'rgba(0,0,0,0.35)' });
 export const blurPx = (blur: number, pageW: number) => blur * 0.03 * pageW;
@@ -185,11 +205,20 @@ export async function renderPage(story: Story, pageIndex: number, widthPx: numbe
   if (!page) return canvas;
 
   const visible: VisibleEl[] = sortByZ(elementsVisibleOnPage(story, pageIndex));
+  const own = opts.closeAfterDraw === true;
   const bitmaps = new Map<string, Bitmap | null>();
-  for (const el of visible) {
-    if (el.kind !== 'photo' || !el.photoId || bitmaps.has(el.photoId)) continue;
-    const photo = findPhoto(story, el.photoId);
-    bitmaps.set(el.photoId, photo ? await getBitmap(photo) : null);
+  if (!own) {
+    const need = new Map<string, number>();
+    for (const el of visible) {
+      if (el.kind !== 'photo' || !el.photoId) continue;
+      const photo = findPhoto(story, el.photoId);
+      if (photo) need.set(el.photoId, Math.max(need.get(el.photoId) ?? 0, neededPhotoEdge(el, photo, W, H)));
+    }
+    for (const el of visible) {
+      if (el.kind !== 'photo' || !el.photoId || bitmaps.has(el.photoId)) continue;
+      const photo = findPhoto(story, el.photoId);
+      bitmaps.set(el.photoId, photo ? await getBitmap(photo, need.get(el.photoId)) : null);
+    }
   }
   ctx.save();
   ctx.beginPath();
@@ -198,7 +227,17 @@ export async function renderPage(story: Story, pageIndex: number, widthPx: numbe
   for (const el of visible) {
     if (el.kind === 'rect') drawRect(ctx, el, W, H);
     else if (el.kind === 'text') drawText(ctx, el, W, H);
-    else drawPhoto(ctx, el, W, H, findPhoto(story, el.photoId), el.photoId ? bitmaps.get(el.photoId) ?? null : null, opts.placeholders !== false);
+    else {
+      const photo = findPhoto(story, el.photoId);
+      let bitmap: Bitmap | null = null;
+      if (own) bitmap = photo ? await getBitmap(photo, neededPhotoEdge(el, photo, W, H)) : null;
+      else if (el.photoId) bitmap = bitmaps.get(el.photoId) ?? null;
+      try {
+        drawPhoto(ctx, el, W, H, photo, bitmap, opts.placeholders !== false);
+      } finally {
+        if (own) bitmap?.close();
+      }
+    }
   }
   ctx.restore();
   return canvas;

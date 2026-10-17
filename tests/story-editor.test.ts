@@ -71,7 +71,9 @@ describe('video job helpers', () => {
   it('keeps per-page overrides and can fit to music', () => {
     expect(videoDurations(story(), 4)).toEqual([4, 5, 4, 4]);
     const fit = videoDurations(story(), 3, 30);
-    const total = fit.reduce((a, b) => a + b, 0) - 3 * 0.6;
-    expect(total).toBeCloseTo(30, 0);
+    // pages are laid end to end (transitions overlap inside a page's own time), so the video is the plain sum
+    const total = fit.reduce((a, b) => a + b, 0);
+    expect(total).toBeLessThanOrEqual(30 + 1e-9);
+    expect(total).toBeGreaterThan(29.9);
   });
 });

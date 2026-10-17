@@ -1,8 +1,8 @@
 import { api, type VideoJob } from '../api';
 import { toJpeg } from '../core/canvas';
-import { getFullBitmap, type Photo } from '../core/images';
+import { getBitmapForSize } from '../core/images';
 import { crossesBoundary, evenPageSize, type Story } from './model';
-import { renderPage, type PageCanvas } from './render';
+import { renderPage, type GetBitmap, type PageCanvas } from './render';
 
 export type Progress = (done: number, total: number) => void;
 
@@ -15,64 +15,17 @@ const check = (signal?: AbortSignal) => {
   if (signal?.aborted) throw abortError();
 };
 
-const photoIdsOnPage = (story: Story, i: number): Set<string> => {
-  const ids = new Set<string>();
-  const here = story.pages[i];
-  if (!here) return ids;
-  story.pages.forEach((p, j) => {
-    for (const el of p.elements) {
-      if (el.kind !== 'photo' || !el.photoId) continue;
-      const x = el.x + (j - i);
-      if (j === i || (x < 1 && x + el.w > 0)) ids.add(el.photoId);
-    }
-  });
-  return ids;
-};
-
-/** Full-resolution bitmaps for export, kept only while the next page still needs them. */
-export function makeBitmapCache() {
-  const bitmaps = new Map<string, Promise<ImageBitmap>>();
-  return {
-    get: (photo: Photo) => {
-      let b = bitmaps.get(photo.id);
-      if (!b) {
-        b = getFullBitmap(photo);
-        bitmaps.set(photo.id, b);
-      }
-      return b;
-    },
-    /** Close every bitmap not in `keep`. */
-    async prune(keep: Set<string>) {
-      for (const [id, b] of [...bitmaps]) {
-        if (keep.has(id)) continue;
-        bitmaps.delete(id);
-        (await b.catch(() => null))?.close();
-      }
-    },
-    closeAll: () => (async function () {
-      for (const b of bitmaps.values()) (await b.catch(() => null))?.close();
-      bitmaps.clear();
-    })(),
-  };
-}
-
-/** Render each page, handing it to `sink` and releasing the canvas and unneeded bitmaps afterwards. */
+/** Render each page, handing it to `sink` and releasing the canvas afterwards. Photos are decoded one element at a time at the size that element needs. */
 async function renderAll(story: Story, width: number, signal: AbortSignal | undefined, onProgress: Progress | undefined, sink: (canvas: PageCanvas, i: number) => Promise<void>) {
-  const cache = makeBitmapCache();
-  try {
-    for (let i = 0; i < story.pages.length; i++) {
-      check(signal);
-      onProgress?.(i, story.pages.length);
-      const canvas = await renderPage(story, i, width, cache.get);
-      check(signal);
-      await sink(canvas, i);
-      if ('width' in canvas) { canvas.width = 0; canvas.height = 0; }
-      await cache.prune(photoIdsOnPage(story, i + 1));
-    }
-    onProgress?.(story.pages.length, story.pages.length);
-  } finally {
-    await cache.closeAll();
+  for (let i = 0; i < story.pages.length; i++) {
+    check(signal);
+    onProgress?.(i, story.pages.length);
+    const canvas = await renderPage(story, i, width, getBitmapForSize as GetBitmap, { closeAfterDraw: true });
+    check(signal);
+    await sink(canvas, i);
+    if ('width' in canvas) { canvas.width = 0; canvas.height = 0; }
   }
+  onProgress?.(story.pages.length, story.pages.length);
 }
 
 const sanitize = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -112,18 +65,22 @@ export type VideoOptions = {
 };
 export const DEFAULT_PAGE_SECONDS = 3;
 
+/**
+ * Scale page durations so they add up to at most `musicSeconds`. Pages are laid end to end
+ * (transitions overlap inside a page's own time), so the video length is exactly the sum of the durations.
+ * Rounded down to 10 ms so rounding can never push the video past the song.
+ */
+export function fitDurations(durations: number[], musicSeconds: number): number[] {
+  const sum = durations.reduce((a, b) => a + b, 0);
+  if (!(musicSeconds > 0) || !(sum > 0)) return durations;
+  const scale = musicSeconds / sum;
+  return durations.map((x) => Math.max(0.01, Math.floor(x * scale * 100 + 1e-9) / 100));
+}
+
 /** Per-page durations: individual overrides win, the rest take `pageSeconds`; optionally stretched to fill the music. */
 export function videoDurations(story: Story, pageSeconds: number, musicSeconds?: number | null): number[] {
-  const { transition, transitionSeconds } = story.video;
-  let d = story.pages.map((p) => (Math.abs(p.duration - DEFAULT_PAGE_SECONDS) < 1e-6 ? pageSeconds : p.duration));
-  if (musicSeconds && musicSeconds > 0 && d.length) {
-    const boundaries = d.length - 1;
-    const overlap = boundaries * (transition === 'none' ? 0 : transitionSeconds);
-    const sum = d.reduce((a, b) => a + b, 0);
-    const scale = (musicSeconds + overlap) / sum;
-    d = d.map((x) => Math.max(1, Math.round(x * scale * 100) / 100));
-  }
-  return d;
+  const d = story.pages.map((p) => (Math.abs(p.duration - DEFAULT_PAGE_SECONDS) < 1e-6 ? pageSeconds : p.duration));
+  return musicSeconds && musicSeconds > 0 && d.length ? fitDurations(d, musicSeconds) : d;
 }
 
 /** Transitions: 'slide' where an element crosses the seam, else the chosen one; Ken Burns off beside a slide. */
@@ -147,11 +104,12 @@ export async function exportVideo(story: Story, o: VideoOptions): Promise<string
   const shortest = Math.min(...durations);
   const job: VideoJob = {
     output: '',
+    suggestedName: `${storyBaseName(story)}.mp4`,
     frames,
     durations,
     transition: v.transition,
     transitions,
-    transitionSeconds: Math.max(0.1, Math.min(v.transitionSeconds, shortest * 0.8)),
+    transitionSeconds: Math.min(v.transitionSeconds, shortest * 0.8),
     kenBurns: v.kenBurns,
     kenBurnsPages,
     fps: 30,

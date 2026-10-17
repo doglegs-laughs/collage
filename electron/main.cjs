@@ -1,12 +1,13 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, shell } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { atomicWrite, readImage, exists } = require('./files.cjs');
+const { atomicWrite, readImage, exists, writeSidecar } = require('./files.cjs');
 const video = require('./video.cjs');
 
 const isMac = process.platform === 'darwin';
 const devUrl = process.env.VITE_DEV_SERVER_URL;
-const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tif', 'tiff', 'avif', 'heic', 'heif'];
+// TIFF is converted with sips, so it is only offered on macOS (HEIC stays listed to give a clear message elsewhere).
+const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif', 'heic', 'heif', ...(isMac ? ['tif', 'tiff'] : [])];
 const AUDIO_EXT = ['mp3', 'm4a', 'aac', 'wav', 'aiff', 'flac', 'ogg'];
 
 if (process.env.COLLAGE_NO_SANDBOX === '1' || (process.getuid && process.getuid() === 0)) {
@@ -14,6 +15,26 @@ if (process.env.COLLAGE_NO_SANDBOX === '1' || (process.getuid && process.getuid(
 }
 
 let mainWindow = null;
+let dirty = false; // unsaved Story work, reported by the renderer
+let discardConfirmed = false; // the user already chose Discard for this close/quit
+let quitting = false;
+const crashes = [];
+
+/** Ask before throwing away unsaved work. Returns true when it is fine to go on. */
+function confirmDiscard(parent) {
+  if (!dirty || discardConfirmed) return true;
+  const choice = dialog.showMessageBoxSync(parent ?? undefined, {
+    type: 'warning',
+    buttons: ['Cancel', 'Discard'],
+    defaultId: 0,
+    cancelId: 0,
+    message: 'You have unsaved changes in Story.',
+    detail: 'Closing now will discard them. Cancel and use Save to keep your work.',
+  });
+  if (choice !== 1) return false;
+  discardConfirmed = true;
+  return true;
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -32,7 +53,23 @@ function createWindow() {
     },
   });
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.on('close', (event) => {
+    if (!confirmDiscard(mainWindow)) event.preventDefault();
+  });
   mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error(`Renderer process gone (${details.reason}, exit code ${details.exitCode})`);
+    if (details.reason === 'clean-exit' || !mainWindow) return;
+    const now = Date.now();
+    crashes.push(now);
+    while (crashes.length && now - crashes[0] > 60_000) crashes.shift();
+    dirty = false; // the unsaved state died with the renderer
+    if (crashes.length > 3) {
+      console.error('Renderer keeps crashing; not reloading again.');
+      return;
+    }
+    mainWindow.webContents.reload();
+  });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url);
     return { action: 'deny' };
@@ -109,10 +146,12 @@ function registerIpc() {
   ipcMain.handle('file:exists', (_e, file) => exists(String(file)));
   ipcMain.on('file:reveal', (_e, file) => shell.showItemInFolder(String(file)));
 
-  ipcMain.handle('project:save', async (_e, json, suggestedName) => {
+  ipcMain.handle('project:save', async (_e, json, suggestedName, sidecar) => {
     const r = await dialog.showSaveDialog(win(), { defaultPath: suggestedName, filters: filterFor('Collage project', ['collage', 'json']) });
     if (r.canceled || !r.filePath) return null;
-    await atomicWrite(r.filePath, Buffer.from(String(json), 'utf8'));
+    let text = String(json);
+    if (Array.isArray(sidecar) && sidecar.length) text = await writeSidecar(r.filePath, text, sidecar);
+    await atomicWrite(r.filePath, Buffer.from(text, 'utf8'));
     return r.filePath;
   });
   ipcMain.handle('project:open', async () => {
@@ -125,7 +164,7 @@ function registerIpc() {
   ipcMain.handle('video:make', async (event, job) => {
     let output = job.output;
     if (!output) {
-      const r = await dialog.showSaveDialog(win(), { defaultPath: 'story.mp4', filters: filterFor('MP4 video', ['mp4']) });
+      const r = await dialog.showSaveDialog(win(), { defaultPath: typeof job.suggestedName === 'string' && job.suggestedName ? path.basename(job.suggestedName) : 'story.mp4', filters: filterFor('MP4 video', ['mp4']) });
       if (r.canceled || !r.filePath) return '';
       output = r.filePath;
     }
@@ -135,6 +174,7 @@ function registerIpc() {
     });
   });
   ipcMain.handle('video:cancel', () => video.cancel());
+  ipcMain.on('app:set-dirty', (_e, value) => { dirty = value === true; if (!dirty) discardConfirmed = false; });
 }
 
 app.whenReady().then(() => {
@@ -145,3 +185,22 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => { if (!isMac) app.quit(); });
+
+app.on('before-quit', (event) => {
+  if (quitting) {
+    event.preventDefault(); // already cancelling the video; app.quit() runs again when it is done
+    return;
+  }
+  if (!confirmDiscard(mainWindow)) {
+    event.preventDefault();
+    return;
+  }
+  if (video.isRunning()) {
+    event.preventDefault();
+    quitting = true;
+    video.cancel().catch(() => {}).finally(() => {
+      quitting = false;
+      app.quit();
+    });
+  }
+});

@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { api } from '../api';
+import { api, isDesktop, type SidecarPhoto } from '../api';
 import type { PhotoLibrary } from '../core/library';
 import { useToast } from '../ui/Toast';
 import { storyBaseName } from './exportStory';
@@ -23,25 +23,55 @@ export function relinkPhotos(story: Story, found: Photo[]): { story: Story; miss
   return { story: { ...story, pages, photos: [...new Set(map.values())] }, missing };
 }
 
-export function useProject(getStory: () => Story, lib: PhotoLibrary, onLoad: (s: Story) => void) {
+const isAbsolute = (p: string) => /^([\\/]|[A-Za-z]:[\\/])/.test(p);
+/** Photo paths saved relative to the project file (the sidecar folder) are resolved against the file's folder. */
+export function resolvePhotoPath(projectPath: string, photoPath: string): string {
+  if (isAbsolute(photoPath)) return photoPath;
+  const cut = Math.max(projectPath.lastIndexOf('/'), projectPath.lastIndexOf('\\'));
+  if (cut < 0) return photoPath;
+  const sep = projectPath.includes('\\') && !projectPath.includes('/') ? '\\' : '/';
+  return projectPath.slice(0, cut + 1) + (sep === '\\' ? photoPath.replace(/\//g, '\\') : photoPath);
+}
+
+/** Photos with no file on disk, whose bytes must travel with the project. */
+export function photosNeedingSidecar(story: Story): { withBytes: Photo[]; lost: Photo[] } {
+  const loose = story.photos.filter((p) => !p.path);
+  return { withBytes: loose.filter((p) => p.file), lost: loose.filter((p) => !p.file) };
+}
+
+export function useProject(getStory: () => Story, lib: PhotoLibrary, onLoad: (s: Story) => void, opts: { isDirty?: () => boolean; onSaved?: (s: Story) => void } = {}) {
   const toast = useToast();
+  const { isDirty, onSaved } = opts;
 
   const save = useCallback(async () => {
     const story = getStory();
     if (!story.pages.length) return;
     try {
-      const path = await api.saveProject(serializeStory(story), `${storyBaseName(story)}.collage`);
-      if (path) toast(`Saved ${path.split(/[\\/]/).pop()}`, 'success');
+      const { withBytes, lost } = photosNeedingSidecar(story);
+      const sidecar: SidecarPhoto[] = [];
+      if (isDesktop()) for (const p of withBytes) sidecar.push({ id: p.id, name: p.name, data: new Uint8Array(await p.file!.arrayBuffer()) });
+      const path = await api.saveProject(serializeStory(story), `${storyBaseName(story)}.collage`, sidecar);
+      if (!path) return;
+      onSaved?.(story);
+      const unsaved = [...lost, ...(isDesktop() ? [] : withBytes)];
+      if (unsaved.length) {
+        const names = unsaved.slice(0, 3).map((p) => p.name).join(', ');
+        toast(`Saved ${path.split(/[\\/]/).pop()}, but ${unsaved.length} photo${unsaved.length === 1 ? ' has' : 's have'} no file on disk and ${unsaved.length === 1 ? 'is' : 'are'} not stored in it: ${names}${unsaved.length > 3 ? '…' : ''}`, 'error');
+      } else {
+        toast(`Saved ${path.split(/[\\/]/).pop()}${sidecar.length ? ` with ${sidecar.length} photo${sidecar.length === 1 ? '' : 's'} in a Photos folder beside it` : ''}`, 'success');
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not save the project.', 'error');
     }
-  }, [getStory, toast]);
+  }, [getStory, toast, onSaved]);
 
   const open = useCallback(async () => {
     try {
       const file = await api.openProject();
       if (!file) return;
-      const loaded = deserializeStory(file.json);
+      if (isDirty?.() && !window.confirm('Opening a project replaces the story you are editing, and its unsaved changes will be lost. Open anyway?')) return;
+      const parsed = deserializeStory(file.json);
+      const loaded = { ...parsed, photos: parsed.photos.map((p) => (p.path ? { ...p, path: resolvePhotoPath(file.path, p.path) } : p)) };
       const paths = loaded.photos.flatMap((p) => (p.path ? [p.path] : []));
       const found = paths.length ? await lib.addPaths(paths) : [];
       const { story, missing } = relinkPhotos(loaded, found);
@@ -53,7 +83,7 @@ export function useProject(getStory: () => Story, lib: PhotoLibrary, onLoad: (s:
     } catch (e) {
       toast(e instanceof StoryFormatError || e instanceof Error ? e.message : 'Could not open the project.', 'error');
     }
-  }, [lib, onLoad, toast]);
+  }, [lib, onLoad, toast, isDirty]);
 
   return { save, open };
 }

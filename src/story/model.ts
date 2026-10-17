@@ -254,27 +254,102 @@ export function removePhotos(story: Story, ids: readonly string[]): Story {
     pages: story.pages.map((pg) => ({ ...pg, elements: pg.elements.map((e) => (e.kind === 'photo' && e.photoId && set.has(e.photoId) ? { ...e, photoId: null } : e)) })),
   };
 }
+/**
+ * The pages that belong together with page `i`: a multi-page template (panorama, seamless split) marks each of its
+ * pages with `spread { index, count }`. Returns the half-open range [start, end); a plain page is its own group.
+ */
+export function groupOf(story: Story, i: number): { start: number; end: number } {
+  const page = story.pages[i];
+  const sp = page?.spread;
+  if (!page || !sp || sp.count < 2) return { start: i, end: i + 1 };
+  const start = i - sp.index;
+  const end = start + sp.count;
+  if (start < 0 || end > story.pages.length) return { start: i, end: i + 1 };
+  for (let k = 0; k < sp.count; k++) {
+    const s = story.pages[start + k]?.spread;
+    if (!s || s.index !== k || s.count !== sp.count) return { start: i, end: i + 1 };
+  }
+  return { start, end };
+}
+/** Move an insertion point that falls inside a spread group to just after that group. */
+function outsideGroups(story: Story, at: number): number {
+  const i = Math.max(0, Math.min(at, story.pages.length));
+  if (i <= 0 || i >= story.pages.length) return i;
+  const g = groupOf(story, i);
+  return g.start < i && i < g.end ? g.end : i;
+}
+/**
+ * Elements may overflow only onto pages of their own spread group. Clip anything that reaches into another existing page
+ * (the open outer edges of the first and last page are left alone). Elements that would be left with nothing visible are dropped.
+ */
+export function clipStrayOverflow(story: Story): Story {
+  const n = story.pages.length;
+  let changed = false;
+  const pages = story.pages.map((page, j) => {
+    const { start, end } = groupOf(story, j);
+    const lo = start > 0 ? start - j : -Infinity;
+    const hi = end < n ? end - j : Infinity;
+    const els: El[] = [];
+    let pageChanged = false;
+    for (const el of page.elements) {
+      const left = Math.max(el.x, lo);
+      const right = Math.min(el.x + el.w, hi);
+      if (left === el.x && right === el.x + el.w) { els.push(el); continue; }
+      pageChanged = true;
+      if (right - left > 1e-9) els.push({ ...el, x: left, w: right - left });
+    }
+    if (!pageChanged) return page;
+    changed = true;
+    return { ...page, elements: els };
+  });
+  return changed ? { ...story, pages } : story;
+}
+const cloneSpread = (page: Page): Page => ({
+  ...page, id: newId(), elements: page.elements.map((e) => ({ ...e, id: newId(), ...(e.kind === 'photo' ? { crop: { ...e.crop } } : {}) }) as El),
+  ...(page.spread ? { spread: { ...page.spread } } : {}),
+});
+
+/** Insert a page; a position inside a spread group lands after that group. */
 export function addPage(story: Story, page: Page = emptyPage(story.background), at = story.pages.length): Story {
   const pages = story.pages.slice();
-  pages.splice(Math.max(0, Math.min(at, pages.length)), 0, page);
-  return { ...story, pages };
+  pages.splice(outsideGroups(story, at), 0, page);
+  return clipStrayOverflow({ ...story, pages });
 }
+/** Remove a page, or its whole spread group. */
 export function removePage(story: Story, pageIndex: number): Story {
-  return { ...story, pages: story.pages.filter((_, i) => i !== pageIndex) };
+  if (pageIndex < 0 || pageIndex >= story.pages.length) return story;
+  const { start, end } = groupOf(story, pageIndex);
+  return clipStrayOverflow({ ...story, pages: story.pages.filter((_, i) => i < start || i >= end) });
 }
+/** Copy a page, or its whole spread group, with fresh ids; the copy goes right after the original. */
 export function duplicatePage(story: Story, pageIndex: number): Story {
-  const page = story.pages[pageIndex];
-  if (!page) return story;
-  const copy: Page = { ...page, id: newId(), spread: undefined, elements: page.elements.map((e) => ({ ...e, id: newId(), ...(e.kind === 'photo' ? { crop: { ...e.crop } } : {}) }) as El) };
-  if (!copy.spread) delete copy.spread;
-  return addPage(story, copy, pageIndex + 1);
+  if (!story.pages[pageIndex]) return story;
+  const { start, end } = groupOf(story, pageIndex);
+  const copies = story.pages.slice(start, end).map(cloneSpread);
+  const pages = story.pages.slice();
+  pages.splice(end, 0, ...copies);
+  return clipStrayOverflow({ ...story, pages });
+}
+/**
+ * Move a page (or its whole spread group) so it ends up where page `to` was; dropping onto a page inside another group lands after that group.
+ * `index` is the new position of the page that was at `from`.
+ */
+export function movePageTo(story: Story, from: number, to: number): { story: Story; index: number } {
+  if (from < 0 || from >= story.pages.length) return { story, index: from };
+  const { start, end } = groupOf(story, from);
+  if (to >= start && to < end) return { story, index: from };
+  const len = end - start;
+  const moving = story.pages.slice(start, end);
+  const rest = story.pages.filter((_, i) => i < start || i >= end);
+  const target = Math.max(0, Math.min(to >= end ? to - len + 1 : to, rest.length));
+  const without: Story = { ...story, pages: rest };
+  const at = outsideGroups(without, target);
+  const pages = rest.slice();
+  pages.splice(at, 0, ...moving);
+  return { story: clipStrayOverflow({ ...story, pages }), index: at + (from - start) };
 }
 export function movePage(story: Story, from: number, to: number): Story {
-  if (from === to || from < 0 || from >= story.pages.length) return story;
-  const pages = story.pages.slice();
-  const [p] = pages.splice(from, 1);
-  pages.splice(Math.max(0, Math.min(to, pages.length)), 0, p);
-  return { ...story, pages };
+  return movePageTo(story, from, to).story;
 }
 export function setPages(story: Story, pages: Page[]): Story {
   return { ...story, pages };
@@ -330,7 +405,7 @@ export function deserializeStory(json: string): Story {
   const pages: Page[] = raw.pages.map((p: unknown) => {
     if (!isObj(p) || !Array.isArray(p.elements)) return fail('Invalid page');
     const spread = isObj(p.spread) ? { index: num(p.spread.index, 'spread'), count: num(p.spread.count, 'spread') } : undefined;
-    return { id: str(p.id, 'page id'), templateId: typeof p.templateId === 'string' ? p.templateId : null, background: typeof p.background === 'string' ? p.background : '#ffffff', duration: typeof p.duration === 'number' ? p.duration : 3, elements: p.elements.map(readElement), ...(spread ? { spread } : {}) };
+    return { id: str(p.id, 'page id'), templateId: typeof p.templateId === 'string' ? p.templateId : null, background: typeof p.background === 'string' ? p.background : '#ffffff', duration: typeof p.duration === 'number' && Number.isFinite(p.duration) ? Math.min(60, Math.max(0.5, p.duration)) : 3, elements: p.elements.map(readElement), ...(spread ? { spread } : {}) };
   });
   const v = isObj(raw.video) ? raw.video : {};
   const style = STYLE_IDS.includes(raw.style as StyleId) ? (raw.style as StyleId) : 'clean';

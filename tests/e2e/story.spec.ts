@@ -36,7 +36,11 @@ test.beforeEach(async () => {
   await page.setViewportSize({ width: 1500, height: 950 });
   await page.getByRole('tab', { name: 'Story' }).click();
 });
-test.afterEach(async () => { await app.close(); });
+test.afterEach(async () => {
+  // Unsaved edits make the app ask before quitting; answer "Discard" so the test can end.
+  await app.evaluate(({ dialog }) => { dialog.showMessageBoxSync = (() => 1) as never; });
+  await app.close();
+});
 
 const stubDialogs = (args: { photos: string[]; folder: string; video: string }) =>
   app.evaluate(({ dialog }, a) => {
@@ -188,4 +192,25 @@ test('move, nudge, text edit and page management', async () => {
   const count = await page.locator('.story-page [data-testid="story-el-photo"]').count();
   await page.getByTestId('view-story').locator('.tray-pick').nth(5).dragTo(page.getByTestId('story-page'), { targetPosition: { x: 20, y: 20 } });
   await expect.poll(() => page.locator('.story-page [data-testid="story-el-photo"]').count()).toBeGreaterThanOrEqual(count);
+});
+
+test('closing the window with unsaved changes asks first, and Cancel keeps it open', async () => {
+  test.setTimeout(120_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  await stubDialogs({ photos, folder, video: path.join(folder, 'x.mp4') });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(page.getByTestId('view-story').locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  await page.getByTestId('make-story').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  const close = () =>
+    app.evaluate(({ dialog, BrowserWindow }) => {
+      const g = globalThis as unknown as { __asked: number };
+      g.__asked = 0;
+      dialog.showMessageBoxSync = (() => { g.__asked++; return 0; }) as never;
+      BrowserWindow.getAllWindows()[0].close();
+      return { asked: g.__asked, windows: BrowserWindow.getAllWindows().length };
+    });
+  await page.getByTestId('page-add').click();
+  await page.waitForTimeout(500);
+  expect(await close()).toEqual({ asked: 1, windows: 1 });
 });

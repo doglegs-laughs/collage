@@ -1,6 +1,8 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Photo } from '../core/images';
 import { usePhotoLibrary } from '../core/library';
+import { usePasteImages } from '../core/usePasteImages';
+import { api } from '../api';
 import { PhotoTray } from '../ui/PhotoTray';
 import { Button } from '../ui/Controls';
 import { useToast } from '../ui/Toast';
@@ -33,7 +35,12 @@ export function StoryView() {
   const thumbs = usePageThumbs(story);
   const getStory = useCallback(() => st.live.current, [st.live]);
   const exporter = useExporter(getStory);
-  const project = useProject(getStory, lib, useCallback((s: Story) => { st.load(s); ed.goTo(0); }, [st.load, ed.goTo])); // eslint-disable-line react-hooks/exhaustive-deps
+  const dirtyRef = useRef(st.dirty);
+  dirtyRef.current = st.dirty;
+  const isDirty = useCallback(() => dirtyRef.current, []);
+  const project = useProject(getStory, lib, useCallback((s: Story) => { st.load(s); ed.goTo(0); }, [st.load, ed.goTo]), { isDirty, onSaved: st.markSaved }); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { api.setDirty(st.dirty); }, [st.dirty]);
+  usePasteImages(visible, (files) => void lib.addFiles(files));
   const [panel, setPanel] = useState<null | 'images' | 'video'>(null);
   const [making, setMaking] = useState(false);
   const hasPages = story.pages.length > 0;
@@ -84,7 +91,7 @@ export function StoryView() {
   const onScale = useCallback((w: number) => { ed.pxPerPage.current = w; }, [ed.pxPerPage]);
 
   useStoryKeys({
-    enabled: visible, hasSelection: selection.length > 0, cropping: !!ed.cropId, pageCount: story.pages.length, pageIndex,
+    enabled: visible && panel === null, hasSelection: selection.length > 0, cropping: !!ed.cropId, pageCount: story.pages.length, pageIndex,
     remove: ed.remove, nudge: ed.nudge, duplicate: ed.duplicate, undo: history.undo, redo: history.redo, zOrder: ed.zOrder,
     deselect: () => ed.select([]), selectAll: () => ed.select(page?.elements.map((e) => e.id) ?? []),
     exitCrop: () => ed.setCropId(null), goTo: ed.goTo, save: project.save, open: project.open,

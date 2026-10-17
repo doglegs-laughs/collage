@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FONT_STACKS, fontShorthand } from '../src/story/fonts';
 import { addPhotos, defaultPhotoEl, defaultRectEl, defaultTextEl, emptyPage, emptyStory, setPages } from '../src/story/model';
-import { layoutElementPx, renderPage } from '../src/story/render';
+import { layoutElementPx, neededPhotoEdge, renderPage } from '../src/story/render';
 
 type Call = [string, ...unknown[]];
 function fakeCanvas(w: number, h: number) {
@@ -86,5 +86,51 @@ describe('renderPage', () => {
     const s = { ...make(), aspect: '4:5' as const };
     await renderPage(s, 0, 1080, () => bitmap, { createCanvas: (w, h) => ((size = [w, h]), fakeCanvas(w, h).canvas) });
     expect(size).toEqual([1080, 1350]);
+  });
+});
+
+describe('export decode sizing', () => {
+  const photo = { id: 'a', name: 'a', width: 4000, height: 3000 };
+  const page = (els: ReturnType<typeof defaultPhotoEl>[]) => setPages(addPhotos(emptyStory('1:1'), [photo]), [{ ...emptyPage(), elements: els }]);
+
+  it('needs only as many pixels as the box shows, more when zoomed in, never more than the original', () => {
+    const half = defaultPhotoEl({ x: 0, y: 0, w: 0.5, h: 0.5, photoId: 'a' });
+    // 1000 px page: a 500 px square shows the 3000x3000 centre of the photo -> 500/3000 px per source px.
+    expect(neededPhotoEdge(half, photo, 1000, 1000)).toBe(Math.ceil(4000 * (500 / 3000)));
+    const zoomed = { ...half, crop: { zoom: 4, cx: 0.5, cy: 0.5 } };
+    expect(neededPhotoEdge(zoomed, photo, 1000, 1000)).toBeCloseTo(4000 * (500 / 750), -1);
+    expect(neededPhotoEdge({ ...zoomed, crop: { zoom: 8, cx: 0.5, cy: 0.5 } }, photo, 4000, 4000)).toBe(4000);
+    const tiny = { id: 'b', name: 'b', width: 100, height: 100 };
+    expect(neededPhotoEdge(half, tiny, 4000, 4000)).toBe(100);
+  });
+
+  it('closeAfterDraw asks per element with its size and closes each bitmap right after drawing it', async () => {
+    const a = defaultPhotoEl({ id: 'e1', x: 0, y: 0, w: 0.5, h: 0.5, photoId: 'a', z: 0 });
+    const b = defaultPhotoEl({ id: 'e2', x: 0.5, y: 0.5, w: 0.5, h: 0.5, photoId: 'a', z: 1 });
+    const s = page([a, b]);
+    const f = fakeCanvas(0, 0);
+    const log: string[] = [];
+    let alive = 0;
+    const edges: (number | undefined)[] = [];
+    await renderPage(s, 0, 1000, async (_p, edge) => {
+      edges.push(edge);
+      alive++;
+      log.push('get');
+      expect(alive).toBe(1);
+      return { width: 1000, height: 750, close: () => { alive--; log.push('close'); } } as unknown as ImageBitmap;
+    }, { createCanvas: () => f.canvas, closeAfterDraw: true });
+    expect(log).toEqual(['get', 'close', 'get', 'close']);
+    expect(edges.every((e) => typeof e === 'number' && e > 0 && e <= 4000)).toBe(true);
+    expect(f.calls.filter((c) => c[0] === 'drawImage')).toHaveLength(2);
+  });
+
+  it('without closeAfterDraw one bitmap per photo is requested with the largest need and never closed', async () => {
+    const small = defaultPhotoEl({ x: 0, y: 0, w: 0.2, h: 0.2, photoId: 'a' });
+    const big = defaultPhotoEl({ x: 0, y: 0.3, w: 0.8, h: 0.6, photoId: 'a' });
+    const f = fakeCanvas(0, 0);
+    const calls: (number | undefined)[] = [];
+    await renderPage(page([small, big]), 0, 1000, (_p, edge) => { calls.push(edge); return { width: 10, height: 10, close: () => { throw new Error('closed'); } } as unknown as ImageBitmap; }, { createCanvas: () => f.canvas });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toBe(neededPhotoEdge(big, photo, 1000, 1000));
   });
 });

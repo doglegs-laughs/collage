@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { clamp } from '../core/geometry';
 import type { Photo } from '../core/images';
 import {
-  addElement, addPage, addPhotos, aspectRatio, defaultPhotoEl, defaultRectEl, defaultTextEl, duplicatePage, duplicateElements, emptyPage, movePage, removeElements,
+  addElement, addPage, addPhotos, aspectRatio, defaultPhotoEl, defaultRectEl, defaultTextEl, duplicatePage, duplicateElements, emptyPage, groupOf, movePageTo, removeElements,
   removePage, reorderZ, replacePhoto, updateElements, type El, type Page, type Story, type ZMove,
 } from './model';
 import { shuffleLayout } from './autofill';
@@ -110,23 +110,28 @@ export function useEditor(story: Story, mutate: Mutate) {
 
   /* pages */
   const pageAdd = useCallback(() => {
-    const at = live.current.pageIndex + 1;
-    mutate((s) => addPage(s, emptyPage(s.background), at));
+    const { story: s, pageIndex: pi } = live.current;
+    const at = groupOf(s, pi).end;
+    mutate((st) => addPage(st, emptyPage(st.background), at));
     goTo(at);
   }, [mutate, goTo]);
   const pageDuplicate = useCallback(() => {
-    const at = live.current.pageIndex;
-    mutate((s) => duplicatePage(s, at));
-    goTo(at + 1);
+    const { story: s, pageIndex: pi } = live.current;
+    const at = groupOf(s, pi).end;
+    mutate((st) => duplicatePage(st, pi));
+    goTo(at);
   }, [mutate, goTo]);
   const pageDelete = useCallback(() => {
-    const at = live.current.pageIndex;
-    mutate((s) => removePage(s, at));
-    goTo(Math.max(0, at - 1));
+    const { story: s, pageIndex: pi } = live.current;
+    const { start, end } = groupOf(s, pi);
+    if (end - start > 1 && typeof window !== 'undefined' && !window.confirm(`Delete this spread (${end - start} pages)?`)) return;
+    mutate((st) => removePage(st, pi));
+    goTo(Math.max(0, start - 1));
   }, [mutate, goTo]);
   const pageMove = useCallback((from: number, to: number) => {
-    mutate((s) => movePage(s, from, to));
-    goTo(to);
+    const r = movePageTo(live.current.story, from, to);
+    mutate((s) => movePageTo(s, from, to).story);
+    goTo(r.index);
   }, [mutate, goTo]);
   const pageShuffle = useCallback(() => {
     const at = live.current.pageIndex;

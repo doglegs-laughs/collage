@@ -1,4 +1,4 @@
-import { getThumbnailUrl, type Photo } from './images';
+import { getThumbnailUrl, storedName, type Photo } from './images';
 
 export const MAX_RECENTS = 60;
 
@@ -36,7 +36,7 @@ export async function saveRecent(photo: Photo, source: Blob): Promise<void> {
   const existing = await store('readonly', (s) => s.get(photo.id) as IDBRequest<RecentItem | undefined>);
   const record: RecentItem = existing
     ? { ...existing, used: Date.now() }
-    : { id: photo.id, name: photo.name, type: source.type, blob: source, thumb: await (await fetch(await getThumbnailUrl(photo))).blob(), used: Date.now() };
+    : { id: photo.id, name: await storedName(photo.name, source), type: source.type, blob: source, thumb: await (await fetch(await getThumbnailUrl(photo))).blob(), used: Date.now() };
   await store('readwrite', (s) => s.put(record));
   const stale = (await listRecents()).slice(MAX_RECENTS);
   if (stale.length) await store('readwrite', (s) => { stale.forEach((r) => s.delete(r.id)); return s.count(); });

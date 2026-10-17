@@ -17,7 +17,26 @@ export const PREVIEW_EDGE = 2048;
 const THUMB_EDGE = 240;
 const CACHE_LIMIT = 24;
 const IMAGE_NAME = /\.(jpe?g|png|webp|gif|tiff?|heic|heif|avif|bmp)$/i;
-const HEIC_NAME = /\.(heic|heif)$/i;
+const CONVERTED_NAME = /\.(heic|heif|tiff?)$/i;
+
+const HEIC_BRANDS = ['heic', 'heix', 'mif1', 'msf1'];
+const ascii = (b: Uint8Array, from: number, to: number) => String.fromCharCode(...b.subarray(from, to));
+/** HEIC/HEIF by content: an `ftyp` box at offset 4 whose brand is heic, heix, mif1 or msf1. Pass at least the first 12 bytes. */
+export function isHeicBytes(head: Uint8Array): boolean {
+  return head.length >= 12 && ascii(head, 4, 8) === 'ftyp' && HEIC_BRANDS.includes(ascii(head, 8, 12));
+}
+/** TIFF by content (II*\0 or MM\0*), which Chromium cannot decode either. */
+export function isTiffBytes(head: Uint8Array): boolean {
+  return head.length >= 4 && ((head[0] === 0x49 && head[1] === 0x49 && head[2] === 0x2a && head[3] === 0) || (head[0] === 0x4d && head[1] === 0x4d && head[2] === 0 && head[3] === 0x2a));
+}
+/** Name for a photo whose bytes were converted to JPEG on read (HEIC, TIFF): same name with a .jpg extension. */
+export const convertedName = (name: string): string => name.replace(CONVERTED_NAME, '.jpg');
+/** Whether a stored blob's name must change: it is named like a converted format but holds browser-decodable bytes. */
+export async function storedName(name: string, blob: Blob): Promise<string> {
+  if (!CONVERTED_NAME.test(name)) return name;
+  const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  return isHeicBytes(head) || isTiffBytes(head) ? name : convertedName(name);
+}
 
 export const isImageFile = (file: { name: string; type?: string }) => !!file.type?.startsWith('image/') || IMAGE_NAME.test(file.name);
 const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
@@ -36,8 +55,8 @@ async function contentId(bytes: ArrayBuffer): Promise<string> {
 const decode = (blob: Blob) => createImageBitmap(blob, { imageOrientation: 'from-image' });
 
 async function sourceBlob(photo: Photo): Promise<Blob> {
-  // Chromium cannot decode HEIC; the desktop app converts it on read.
-  if (photo.file && !(photo.path && HEIC_NAME.test(photo.name))) return photo.file;
+  // Photos that Chromium cannot decode (HEIC, TIFF) drop `file` on import and are converted on read by the desktop app.
+  if (photo.file) return photo.file;
   if (!photo.path) throw new Error(`${photo.name} is no longer available.`);
   return new Blob([(await api.readFile(photo.path)) as BlobPart], { type: 'image/jpeg' });
 }
@@ -57,11 +76,12 @@ export async function importFromFiles(files: File[]): Promise<ImportResult> {
   for (const file of files.filter(isImageFile)) {
     try {
       const path = api.pathForFile(file) || undefined;
-      const heic = HEIC_NAME.test(file.name);
-      if (heic && !path) throw new Error('HEIC photos can only be opened in the desktop app.');
-      const blob = heic && path ? new Blob([(await api.readFile(path)) as BlobPart], { type: 'image/jpeg' }) : file;
+      const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+      const convert = isHeicBytes(head) || isTiffBytes(head);
+      if (convert && !path) throw new Error('HEIC and TIFF photos can only be opened in the desktop app.');
+      const blob = convert && path ? new Blob([(await api.readFile(path)) as BlobPart], { type: 'image/jpeg' }) : file;
       const photo = await describe(blob, file.name, path, file);
-      if (heic) delete photo.file;
+      if (convert) delete photo.file;
       result.photos.push(photo);
     } catch (error) {
       result.failed.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });
@@ -129,6 +149,22 @@ export function getPreviewBitmap(photo: Photo): Promise<ImageBitmap> {
 /** Full-resolution oriented bitmap for export. The caller must close() it. */
 export async function getFullBitmap(photo: Photo): Promise<ImageBitmap> {
   return decode(await sourceBlob(photo));
+}
+
+/** Size to decode a photo at so its long edge is `maxEdge`: aspect kept, never upscaled. */
+export function sizeForEdge(width: number, height: number, maxEdge: number): { width: number; height: number } {
+  const long = Math.max(width, height);
+  if (!(maxEdge > 0) || maxEdge >= long) return { width, height };
+  const k = maxEdge / long;
+  return { width: Math.max(1, Math.round(width * k)), height: Math.max(1, Math.round(height * k)) };
+}
+
+/** Oriented bitmap whose long edge is at most `maxEdge` px (decoded straight to that size, so a big original is never held in full). The caller must close() it. */
+export async function getBitmapForSize(photo: Photo, maxEdge: number): Promise<ImageBitmap> {
+  const blob = await sourceBlob(photo);
+  const size = sizeForEdge(photo.width, photo.height, maxEdge);
+  if (size.width === photo.width && size.height === photo.height) return decode(blob);
+  return createImageBitmap(blob, { resizeWidth: size.width, resizeHeight: size.height, resizeQuality: 'high', imageOrientation: 'from-image' });
 }
 
 /* Thumbnails: long edge 240, kept as object URLs for the life of the page. */

@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react';
+import { useVisible } from '../collage/useVisible';
+import { usePasteImages } from '../core/usePasteImages';
 import { api } from '../api';
 import { usePhotoLibrary } from '../core/library';
 import { useToast } from '../ui/Toast';
@@ -10,6 +12,8 @@ import { exportBorders, messageOf, type ExportResult } from './exportBorders';
 import { fillFor } from './render';
 
 export function BordersView() {
+  const root = useRef<HTMLDivElement>(null);
+  const visible = useVisible(root);
   const library = usePhotoLibrary();
   const toast = useToast();
   const [settings, setSettings] = useState<BorderSettings>(DEFAULT_SETTINGS);
@@ -20,6 +24,8 @@ export function BordersView() {
   const [result, setResult] = useState<ExportResult | null>(null);
   const busy = useRef(false);
   const cancelRequested = useRef(false);
+
+  usePasteImages(visible, (files) => void library.addFiles(files));
 
   const { photos } = library;
   const batch = photos.filter((p) => !deselected.has(p.id));
@@ -85,7 +91,7 @@ export function BordersView() {
   const allSelected = batch.length === photos.length;
 
   return (
-    <div className="workspace" data-testid="view-borders">
+    <div ref={root} className="workspace" data-testid="view-borders">
       <aside className="sidebar borders-side">
         <PhotoTray
           className="section"

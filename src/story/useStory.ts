@@ -20,6 +20,10 @@ export type StoryState = {
   setSubtitle: (subtitle: string) => void;
   /** Load a whole story (project open); clears history. */
   load: (story: Story) => void;
+  /** True when the story differs from the last saved / opened / freshly generated one (undoing back to it clears this). */
+  dirty: boolean;
+  /** Treat `story` (the snapshot that was just written to disk) as the clean state. */
+  markSaved: (story: Story) => void;
 };
 
 const initialStory = (): Story => ({ ...emptyStory(), video: { ...DEFAULT_VIDEO, kenBurns: true } });
@@ -36,6 +40,8 @@ export function useStory(): StoryState {
   const seedRef = useRef(seed);
   seedRef.current = seed;
   const { set } = history;
+  const [baseline, setBaseline] = useState<Story>(story);
+  const dirty = story !== baseline;
 
   const generate = useCallback((photos: Photo[], o: GenerateOpts = {}) => {
     const s = live.current;
@@ -50,7 +56,10 @@ export function useStory(): StoryState {
     }
     const pages = makeStory(photos, { style, aspect, title, subtitle: subtitleText, seed: nextSeed });
     setSeed(nextSeed);
-    set({ ...s, style, aspect, title, pages, photos });
+    const next = { ...s, style, aspect, title, pages, photos };
+    set(next);
+    // Laying out a story from nothing is not unsaved work yet; anything after it is.
+    if (!s.pages.length) setBaseline(next);
     return pages.length;
   }, [set]);
 
@@ -68,7 +77,9 @@ export function useStory(): StoryState {
   const load = useCallback((next: Story) => {
     setSubtitleState('');
     history.reset(next);
+    setBaseline(next);
   }, [history]);
+  const markSaved = useCallback((saved: Story) => setBaseline(saved), []);
 
-  return { story, subtitle, seed, history, mutate, live, generate, setTitle, setSubtitle, load };
+  return { story, subtitle, seed, history, mutate, live, generate, setTitle, setSubtitle, load, dirty, markSaved };
 }
