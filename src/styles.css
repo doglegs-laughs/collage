@@ -118,6 +118,8 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 .borders-footer-note { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .borders-progress { height: 8px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
 .borders-progress span { display: block; height: 100%; background: var(--gradient); transition: width .2s; }
+.finish-row .segmented { flex-wrap: wrap; }
+.finish-row .segmented button { flex: 1 1 auto; padding: 0 8px; }
 .color-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
 .borders-swatch { width: 40px; height: 32px; padding: 2px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--panel); cursor: pointer; }
 .borders-stage { display: flex; flex-direction: column; align-items: stretch; gap: 10px; min-width: 0; padding: 20px 24px; }
