@@ -159,7 +159,7 @@ Offer exactly two primary styles up front, others secondary ("More styles"):
 ### Styles and auto-fill (`autofill.ts`)
 
 `autofill(photos, { style, aspect, title, subtitle, seed }) => Page[]`.
-Styles are template sets: **Carousel** (default: stack 2, stack 3, matted single, seamless splits between consecutive pages, white-border singles), **Clean** (white border singles and pairs), **Gallery** (mix of pair/trio/grid), **Film** (film strip + black background), **Polaroid**, **Magazine**. Algorithm: title card first if title present; then greedy: look at next 1–4 photos' orientations, pick the style template with highest `fits` score (tie broken by seeded variety, never the same template three times in a row), consume photos. Photos keep their library order (user order = selection order). `relayout(page, photos, nextTemplate)` cycles a page through compatible templates keeping its photos ("Shuffle layout").
+Styles are template sets: **Carousel** (default: stack 2, stack 3, matted single, seamless splits between consecutive pages, white-border singles), **Clean** (white border singles and pairs), **Gallery** (mix of pair/trio/grid), **Film** (film strip + black background), **Polaroid**, **Magazine**. Algorithm: title card first if title present; then greedy: look at next 1–4 photos' orientations, pick the style template with highest `fits` score (tie broken by seeded variety, never the same template three times in a row), consume photos. Photos keep their library order (user order = selection order). `relayout(page, photos, nextTemplate)` cycles a page through compatible templates keeping its photos; superseded by the layout picker (`src/story/layouts.ts`: `layoutOptions`, `applyLayout`, `nextLayout`; toolbar ‹ Layout ▾ › and `[` / `]`).
 
 ### Editor UI
 
@@ -172,7 +172,7 @@ Styles are template sets: **Carousel** (default: stack 2, stack 3, matted single
   - double-click a photo enters crop mode: drag pans, wheel/pinch zooms (reference behavior), Esc/Enter exits.
   - double-click text edits inline.
   - keyboard: Delete, arrows nudge (Shift ×10), ⌘D duplicate, ⌘Z / ⇧⌘Z undo/redo, ⌘] / ⌘[ bring forward/backward, Esc deselect.
-- Right: **Inspector** for selection: frame width/color, shadow, rotation, text props, page background, page duration, "Shuffle layout", "Reset crop".
+- Right: **Inspector** for selection: frame width/color, shadow, rotation, text props, page background, page duration, layout picker, "Reset crop".
 - Bottom: **Page strip** of rendered thumbnails; drag to reorder; add blank, duplicate, delete; click to open.
 - Top bar: Save project / Open project (JSON with photo paths), Export ▾: "Images (JPEG, one per page)" to a chosen folder at 1080 or 2160 wide; "Video (MP4)" with options dialog: transition, Ken Burns, music file (optional), per-page duration default 3 s, "fit to music" which spreads music length over pages.
 

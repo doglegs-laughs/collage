@@ -214,3 +214,79 @@ test('closing the window with unsaved changes asks first, and Cancel keeps it op
   await page.waitForTimeout(500);
   expect(await close()).toEqual({ asked: 1, windows: 1 });
 });
+
+test('layout picker: choose, cycle with arrows, undo', async () => {
+  test.setTimeout(180_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  await stubDialogs({ photos, folder, video: path.join(folder, 'x.mp4') });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(page.getByTestId('view-story').locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  // One selected photo makes a one-page story.
+  const pick = page.getByTestId('view-story').locator('.tray-pick').first();
+  await page.getByTestId('view-story').getByRole('button', { name: 'None', exact: true }).click();
+  await pick.click();
+  await expect(pick).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('make-story').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  expect(await stripCount()).toBe(1);
+  await imagesLoaded().catch(() => {});
+
+  const name = page.getByTestId('layout-name');
+  const original = (await name.textContent())!;
+  const photoEls = page.locator('.story-page [data-testid="story-el-photo"]');
+
+  // Open the picker: several options, Full screen photo first.
+  await page.getByTestId('layout-button').click();
+  const pop = page.getByTestId('layout-popover');
+  await expect(pop).toBeVisible();
+  const tiles = pop.getByTestId('layout-option');
+  expect(await tiles.count()).toBeGreaterThanOrEqual(3);
+  await expect(tiles.first()).toHaveAttribute('data-option-id', 'single-bleed');
+  await expect(tiles.first()).toContainText('Full screen photo');
+  // Thumbnails render progressively.
+  await expect.poll(() => pop.locator('.lp-thumb img').count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(3);
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: path.join(shots, 'layout-picker.png') });
+
+  // Apply Full screen.
+  await tiles.first().click();
+  await expect(pop).toHaveCount(0);
+  await expect(name).toHaveText('Full screen photo');
+  await expect(photoEls).toHaveCount(1);
+  const box = await page.getByTestId('story-page').boundingBox();
+  const el = await photoEls.first().locator('.se-photo').boundingBox();
+  expect(Math.abs(el!.width - box!.width)).toBeLessThan(3);
+
+  // Cycle with the arrows; the name changes and wraps.
+  await page.getByTestId('layout-next').click();
+  expect(await name.textContent()).not.toBe('Full screen photo');
+  await page.getByTestId('layout-prev').click();
+  await expect(name).toHaveText('Full screen photo');
+  await page.getByTestId('layout-prev').click();
+  expect(await name.textContent()).not.toBe('Full screen photo');
+  // Bracket keys cycle too when nothing is selected.
+  await page.keyboard.press(']');
+  await expect(name).toHaveText('Full screen photo');
+
+  // Escape closes the picker without changing anything; Enter applies the focused tile.
+  await page.getByTestId('layout-button').click();
+  await expect(pop).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(pop).toHaveCount(0);
+  await expect(name).toHaveText('Full screen photo');
+  await page.getByTestId('layout-button').click();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(pop).toHaveCount(0);
+  await expect(name).not.toHaveText('Full screen photo');
+
+  // The Page panel shows the same picker with the current layout marked.
+  const section = page.getByTestId('layout-section');
+  await expect(section.locator('[data-testid="layout-option"][data-current="true"]')).toHaveCount(1);
+
+  // Undo steps back one layout at a time, all the way to the original.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(name).toHaveText('Full screen photo');
+  for (let i = 0; i < 8 && (await name.textContent()) !== original; i++) await page.keyboard.press('ControlOrMeta+z');
+  await expect(name).toHaveText(original);
+});

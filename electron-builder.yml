@@ -12,6 +12,7 @@ publish: null
 asarUnpack: []
 mac:
   category: public.app-category.photography
+  icon: build/icon.png
   identity: null
   target:
     - target: dir

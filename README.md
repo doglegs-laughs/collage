@@ -25,3 +25,7 @@ npm run dist:mac     # release/Collage-mac-arm64.zip, ad-hoc signed
 ```
 
 Design and contracts: `docs/PLAN.md`.
+
+## CI
+
+`.github/workflows/mac-build.yml` builds the Apple Silicon app on every push to `main` and on pull requests; download it from the run's **Artifacts**. Pushing a `v*` tag (e.g. `git tag v0.1.0 && git push --tags`) also attaches the zip to a GitHub release.

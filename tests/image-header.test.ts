@@ -4,9 +4,11 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { readOrientedSize } from '../src/core/imageHeader';
 
-const FFMPEG = '/usr/bin/ffmpeg';
+const { ffmpegPath } = createRequire(import.meta.url)('../electron/ffmpeg-path.cjs');
+const FFMPEG: string = ffmpegPath();
 let dir: string;
 const file = (n: string) => new Uint8Array(fs.readFileSync(path.join(dir, n)));
 
