@@ -9,6 +9,7 @@ node scripts/fetch-ffmpeg.mjs
 npx electron-builder --mac --arm64
 app=release/mac-arm64/Collage.app
 if [[ "$(uname)" == Darwin ]]; then
+  codesign --force --sign - "$app/Contents/Resources/ffmpeg/ffmpeg"
   codesign --force --deep --sign - "$app"
 else
   rc=.cache/rcodesign
