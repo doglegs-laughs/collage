@@ -26,6 +26,7 @@ import { usePageThumbs } from './usePageThumbs';
 import { useProject } from './useProject';
 import { useAutosave } from './useAutosave';
 import { useStory } from './useStory';
+import { useHistoryTarget } from '../core/menuHistory';
 import { useStoryKeys } from './useStoryKeys';
 import { useTraySelection } from './useTraySelection';
 
@@ -167,9 +168,10 @@ export function StoryView() {
   };
   const onScale = useCallback((w: number) => { ed.pxPerPage.current = w; }, [ed.pxPerPage]);
 
+  useHistoryTarget(visible, history);
   useStoryKeys({
     enabled: visible && panel === null, hasSelection: selection.length > 0, cropping: !!ed.cropId, pageCount: story.pages.length, pageIndex,
-    remove: ed.remove, nudge: ed.nudge, duplicate: ed.duplicate, undo: history.undo, redo: history.redo, zOrder: ed.zOrder,
+    remove: ed.remove, nudge: ed.nudge, duplicate: ed.duplicate, zOrder: ed.zOrder,
     deselect: () => ed.select([]), selectAll: () => ed.select(page?.elements.map((e) => e.id) ?? []),
     exitCrop: () => ed.setCropId(null), goTo: ed.goTo, save: project.save, open: project.open, cycleLayout: ed.cycleLayout,
     toggleHidden: () => ed.toggleHidden(),
@@ -223,7 +225,7 @@ export function StoryView() {
               setCropId={ed.setCropId} setEditingId={ed.setEditingId} onDropPhoto={dropPhoto} onScale={onScale}
               onContextMenu={(id, x, y) => setMenu({ id, x, y })} onDropOut={dropOut}
             />
-            <PageStrip story={story} pageIndex={pageIndex} thumbs={thumbs} onSelect={ed.goTo} onMove={ed.pageMove} onToggleHidden={ed.toggleHidden} onMenu={(i, x, y) => setPageMenu({ i, x, y })} onAdd={ed.pageAdd} onDuplicate={ed.pageDuplicate} onDelete={ed.pageDelete} />
+            <PageStrip elementSelected={selection.length > 0} story={story} pageIndex={pageIndex} thumbs={thumbs} onSelect={ed.goTo} onMove={ed.pageMove} onToggleHidden={ed.toggleHidden} onMenu={(i, x, y) => setPageMenu({ i, x, y })} onAdd={ed.pageAdd} onDuplicate={ed.pageDuplicate} onDelete={ed.pageDelete} />
           </div>
           <aside className="sidebar story-insp" data-testid="story-inspector">
             <StoryInspector

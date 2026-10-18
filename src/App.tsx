@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from './api';
+import { handleMenuCommand } from './core/menuHistory';
 import { PhotoLibraryProvider } from './core/library';
 import { ToastProvider } from './ui/Toast';
 import { CollageView } from './collage/CollageView';
@@ -40,6 +42,7 @@ export function App() {
       return 'collage';
     }
   });
+  useEffect(() => api.onMenuCommand((cmd) => { handleMenuCommand(cmd, document.activeElement, (c) => document.execCommand(c)); }), []);
   const choose = (m: Mode) => {
     setMode(m);
     try { localStorage.setItem('collage.mode', m); } catch { /* storage unavailable */ }

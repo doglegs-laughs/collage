@@ -217,6 +217,9 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 .strip-thumb { height: 100%; border-radius: 6px; overflow: hidden; box-shadow: var(--shadow-sm); outline: 2px solid transparent; outline-offset: 2px; transition: outline-color .12s; }
 .strip-thumb img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .strip-item.current .strip-thumb { outline-color: var(--accent); }
+.story-strip { outline: none; }
+.story-strip:focus-within { box-shadow: var(--shadow), 0 0 0 2px var(--accent-2); }
+.story-strip:focus-within .strip-item.current .strip-thumb { outline-width: 3px; }
 .strip-item.over .strip-thumb { outline-color: var(--accent-2); outline-style: dashed; }
 .strip-num { position: absolute; left: 4px; bottom: 4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; display: grid; place-items: center; background: #0f172acc; color: #fff; font-size: 10.5px; font-weight: 700; }
 .strip-item.link-next { margin-right: -8px; }

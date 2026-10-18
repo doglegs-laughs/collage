@@ -126,6 +126,12 @@ async function openRecent(file) {
   }
 }
 
+/** Tell the focused window's renderer to undo or redo (it decides between a text field and the app history). */
+function sendMenuCommand(command) {
+  const w = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  if (w && !w.isDestroyed()) w.webContents.send(`menu:${command}`);
+}
+
 function buildMenu() {
   const dev = !app.isPackaged;
   const recentItems = recentList.length
@@ -145,7 +151,11 @@ function buildMenu() {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+        // Custom items, not the undo/redo roles: the roles own CmdOrCtrl+Z and run the native text undo, so the app's own history never saw the key.
+        { id: 'undo', label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: () => sendMenuCommand('undo') },
+        { id: 'redo', label: 'Redo', accelerator: isMac ? 'Shift+Cmd+Z' : 'Ctrl+Shift+Z', click: () => sendMenuCommand('redo') },
+        ...(isMac ? [] : [{ id: 'redo-alt', label: 'Redo', accelerator: 'Ctrl+Y', visible: false, click: () => sendMenuCommand('redo') }]),
+        { type: 'separator' },
         { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
       ],
     },

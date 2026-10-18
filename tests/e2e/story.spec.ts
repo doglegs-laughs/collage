@@ -16,6 +16,14 @@ let photos: string[];
 let app: ElectronApplication;
 let page: Page;
 
+/** Edit > Undo / Redo through the real application menu (synthesized keys never reach the menu, and in the app the menu owns the accelerators). */
+const menu = async (id: 'undo' | 'redo') => {
+  await app.evaluate(({ Menu }, i) => { Menu.getApplicationMenu()!.getMenuItemById(i)!.click(); }, id);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+};
+const undo = () => menu('undo');
+const redo = () => menu('redo');
+
 test.beforeAll(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'story-e2e-'));
   // Portraits, landscapes, a square and one 3:1 panorama.
@@ -118,7 +126,7 @@ test('make a story in one click, edit, undo, export images and video', async () 
   await expect(page.getByTestId('selection-box')).toHaveCount(1);
   await page.keyboard.press('Delete');
   await expect(photoEls).toHaveCount(before - 1);
-  await page.keyboard.press('ControlOrMeta+z');
+  await undo();
   await expect(photoEls).toHaveCount(before);
 
   // Export images.
@@ -152,7 +160,7 @@ test('move, nudge, text edit and page management', async () => {
   const n = await stripCount();
   await page.getByTestId('page-add').click();
   expect(await stripCount()).toBe(n + 1);
-  await page.keyboard.press('ControlOrMeta+z');
+  await undo();
   expect(await stripCount()).toBe(n);
 
   // Cover: edit the title text in place.
@@ -300,9 +308,9 @@ test('layout picker: choose, cycle with arrows, undo', async () => {
   await expect(section.locator('[data-testid="layout-option"][data-current="true"]')).toHaveCount(1);
 
   // Undo steps back one layout at a time, all the way to the original.
-  await page.keyboard.press('ControlOrMeta+z');
+  await undo();
   await expect(name).toHaveText('Full screen photo');
-  for (let i = 0; i < 8 && (await name.textContent()) !== original; i++) await page.keyboard.press('ControlOrMeta+z');
+  for (let i = 0; i < 8 && (await name.textContent()) !== original; i++) await undo();
   await expect(name).toHaveText(original);
 });
 
@@ -344,7 +352,7 @@ test('move a photo to its own page: inspector, undo, context menu, shortcut', as
   expect(await stripCount()).toBe(total + 1);
   await expect(photoEls).toHaveCount(1);
   await expect(page.locator('.toast.show')).toContainText(`Moved to page ${multi + 2}`);
-  await page.keyboard.press('ControlOrMeta+z');
+  await undo();
   await expect.poll(stripCount).toBe(total);
 
   // Right-click shows the menu; Escape closes it.
@@ -361,7 +369,7 @@ test('move a photo to its own page: inspector, undo, context menu, shortcut', as
   await photoEls.first().locator('.se-photo').click({ button: 'right' });
   await menu.getByRole('menuitem', { name: 'Move to its own page' }).click();
   await expect.poll(stripCount).toBe(total + 1);
-  await page.keyboard.press('ControlOrMeta+z');
+  await undo();
   await expect.poll(stripCount).toBe(total);
   await page.getByTestId('strip-page').nth(multi).click();
   await photoEls.first().locator('.se-photo').click();
@@ -369,7 +377,7 @@ test('move a photo to its own page: inspector, undo, context menu, shortcut', as
   await expect.poll(stripCount).toBe(total + 1);
 
   // Drag a photo from the stage onto the "New page" zone at the end of the strip.
-  await page.keyboard.press('ControlOrMeta+z');
+  await undo();
   await expect.poll(stripCount).toBe(total);
   await page.getByTestId('strip-page').nth(multi).click();
   await expect(page.getByTestId('page-label')).toContainText(`Page ${multi + 1} of`);
@@ -429,7 +437,7 @@ test('drag pans the photo in its frame; double-click moves the frame', async () 
 
   // One pan = one undo step.
   const c1 = await crop();
-  await page.keyboard.press('ControlOrMeta+z');
+  await undo();
   await expect.poll(async () => (await crop()).join()).toBe(c0.join());
   expect(c1.join()).not.toBe(c0.join());
 
@@ -480,9 +488,9 @@ test('hide a page: dimmed in the strip, skipped by export, undo/redo', async () 
   await page.getByTestId('hidden-banner').getByRole('button', { name: 'Show page' }).click();
   await expect(item).toHaveAttribute('data-hidden', 'false');
   await expect(count).toHaveText(`${total} pages`);
-  await page.keyboard.press('ControlOrMeta+z');
+  await undo();
   await expect(item).toHaveAttribute('data-hidden', 'true');
-  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await redo();
   await expect(item).toHaveAttribute('data-hidden', 'false');
 
   // Shortcut toggles the current page, and the strip context menu offers the same.
@@ -512,7 +520,7 @@ test('add a title page or put the title on a page after making a story without o
   await expect(stageText.first()).toContainText(/midsummer/i);
   await expect(page.getByTestId('title-missing')).toHaveCount(0);
 
-  await page.keyboard.press('ControlOrMeta+z');
+  await undo();
   expect(await stripCount()).toBe(n);
   await expect(stageText).toHaveCount(0);
   await expect(page.getByTestId('title-missing')).toBeVisible();
@@ -612,4 +620,58 @@ test('Open Recent lists saved stories and marks missing files', async () => {
   await expect(page.getByTestId('recent-stories')).toContainText('Not found');
   await page.getByTestId('recent-stories').getByRole('button', { name: 'Remove' }).click();
   await expect(page.getByTestId('recent-story')).toHaveCount(0);
+});
+
+test('Edit menu owns undo/redo, and Delete removes the page selected in the strip', async () => {
+  test.setTimeout(180_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  await stubDialogs({ photos, folder, video: path.join(folder, 'x.mp4') });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(page.getByTestId('view-story').locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  await page.getByTestId('make-story').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+
+  // The menu items are custom (a role would swallow the accelerator and run native text undo).
+  const items = await app.evaluate(({ Menu }) => ['undo', 'redo'].map((id) => {
+    const m = Menu.getApplicationMenu()!.getMenuItemById(id)!;
+    return { role: m.role ?? null, accelerator: String(m.accelerator) };
+  }));
+  expect(items[0]).toEqual({ role: null, accelerator: 'CmdOrCtrl+Z' });
+  expect(items[1].role).toBeNull();
+
+  const total = await stripCount();
+  expect(total).toBeGreaterThanOrEqual(3);
+  const label = page.getByTestId('page-label');
+
+  // Click page 2: it is the selection, the strip has focus, Delete removes it.
+  await page.getByTestId('strip-page').nth(1).click();
+  await expect(label).toContainText(`Page 2 of ${total}`);
+  await expect(page.getByTestId('selection-box')).toHaveCount(0);
+  await expect(page.getByTestId('page-strip')).toBeFocused();
+  await page.keyboard.press('Delete');
+  await expect(label).toContainText(`of ${total - 1}`);
+  expect(await stripCount()).toBe(total - 1);
+  await expect(label).toContainText('Page 1 of');
+  await undo();
+  expect(await stripCount()).toBe(total);
+  await redo();
+  expect(await stripCount()).toBe(total - 1);
+  await undo();
+  expect(await stripCount()).toBe(total);
+
+  // Arrows move between pages while the strip is focused.
+  await page.getByTestId('strip-page').nth(1).click();
+  await page.keyboard.press('ArrowRight');
+  await expect(label).toContainText(`Page 3 of ${total}`);
+  await page.keyboard.press('ArrowLeft');
+  await expect(label).toContainText(`Page 2 of ${total}`);
+
+  // With an element selected on the canvas, Delete still removes only the element.
+  await imagesLoaded().catch(() => {});
+  const photoEl = page.locator('.story-page [data-testid="story-el-photo"]').first();
+  await photoEl.locator('.se-photo').click();
+  await expect(page.getByTestId('selection-box')).toHaveCount(1);
+  await page.keyboard.press('Delete');
+  expect(await stripCount()).toBe(total);
+  await expect(page.getByTestId('selection-box')).toHaveCount(0);
 });

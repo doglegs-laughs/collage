@@ -16,6 +16,13 @@ let photos: string[];
 let app: ElectronApplication;
 let page: Page;
 
+/** Edit > Undo / Redo through the real application menu (synthesized keys never reach the menu, and in the app the menu owns the accelerators). */
+const menu = async (id: 'undo' | 'redo') => {
+  await app.evaluate(({ Menu }, i) => { Menu.getApplicationMenu()!.getMenuItemById(i)!.click(); }, id);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+};
+const undo = () => menu('undo');
+
 test.beforeAll(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'preview-e2e-'));
   photos = ['3000x2000', '2000x3000', '2400x1600'].map((size, i) => {
@@ -117,7 +124,7 @@ test('Clear all in Story can be undone and the images render again', async () =>
   await expect(items).toHaveCount(0);
 
   await page.locator('body').click({ position: { x: 700, y: 20 } });
-  await page.keyboard.press('ControlOrMeta+z');
+  await undo();
   await expect(items).toHaveCount(3);
   await expect(view.getByText(/of 3 selected/)).toBeVisible();
   await expect.poll(() => view.locator('.story-stage img').count()).toBeGreaterThan(0);

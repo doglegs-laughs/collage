@@ -10,8 +10,6 @@ export type KeyActions = {
   remove: () => void;
   nudge: (dx: number, dy: number) => void;
   duplicate: () => void;
-  undo: () => void;
-  redo: () => void;
   zOrder: (m: ZMove) => void;
   deselect: () => void;
   selectAll: () => void;
@@ -30,7 +28,8 @@ const isTyping = (t: EventTarget | null): boolean => {
   return el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName);
 };
 
-/** Story shortcuts. Active only while the Story tab shows and focus is not in a text field. */
+/** Story shortcuts. Undo / redo are not here: Edit > Undo / Redo own those accelerators (see core/menuHistory).
+ * Active only while the Story tab shows and focus is not in a text field. */
 export function useStoryKeys(actions: KeyActions) {
   const ref = useRef(actions);
   ref.current = actions;
@@ -45,8 +44,6 @@ export function useStoryKeys(actions: KeyActions) {
         const k = key.toLowerCase();
         if (k === 'n' && e.shiftKey) { done(); a.moveToOwnPage(); }
         else if (k === 'h' && e.shiftKey) { done(); a.toggleHidden(); }
-        else if (k === 'z') { done(); if (e.shiftKey) a.redo(); else a.undo(); }
-        else if (k === 'y') { done(); a.redo(); }
         else if (k === 'd') { done(); a.duplicate(); }
         else if (k === 's') { done(); a.save(); }
         else if (k === 'o') { done(); a.open(); }

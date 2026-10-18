@@ -1,4 +1,4 @@
-import { Fragment, useState, type DragEvent } from 'react';
+import { Fragment, useState, type DragEvent, type KeyboardEvent } from 'react';
 import { Button } from '../ui/Controls';
 import { aspectRatio, hiddenCount, type Story } from './model';
 
@@ -13,11 +13,13 @@ type Props = {
   onAdd: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  /** A canvas element is selected: Delete then belongs to the element, not the page. */
+  elementSelected?: boolean;
   onToggleHidden: (i: number) => void;
   onMenu: (i: number, x: number, y: number) => void;
 };
 
-export function PageStrip({ story, pageIndex, thumbs, onSelect, onMove, onAdd, onDuplicate, onDelete, onToggleHidden, onMenu }: Props) {
+export function PageStrip({ story, pageIndex, thumbs, onSelect, onMove, onAdd, onDuplicate, onDelete, onToggleHidden, onMenu, elementSelected }: Props) {
   const [over, setOver] = useState<number | null>(null);
   const ratio = aspectRatio(story.aspect);
   const spreadWith = (i: number, d: number) => {
@@ -33,8 +35,23 @@ export function PageStrip({ story, pageIndex, thumbs, onSelect, onMove, onAdd, o
       onMove(from, to);
     }
   };
+  /** Keyboard focus in the strip means the page is the selection: Delete removes it (a whole spread, after the usual confirm). */
+  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    if ((e.target as HTMLElement).closest('input, textarea, select, button, [contenteditable="true"]')) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !elementSelected && story.pages.length > 0) {
+      e.preventDefault();
+      e.stopPropagation(); // the window-level Story keys must not see it too
+      onDelete();
+    } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !elementSelected) {
+      const to = pageIndex + (e.key === 'ArrowLeft' ? -1 : 1);
+      e.preventDefault();
+      e.stopPropagation();
+      if (to >= 0 && to < story.pages.length) onSelect(to);
+    }
+  };
   return (
-    <section className="story-strip" aria-label="Pages" data-testid="page-strip">
+    <section className="story-strip" aria-label="Pages" data-testid="page-strip" tabIndex={0} onKeyDown={onKeyDown}>
       <div className="strip-scroll">
         {story.pages.map((p, i) => (
           <Fragment key={p.id}>
