@@ -204,8 +204,6 @@ const borders = page.getByTestId('view-borders');
 // Library is shared with the other tabs: pick three photos, coast first.
 await borders.getByRole('button', { name: 'None', exact: true }).click();
 for (const n of ['11-coast', '04-valley', '02-waterfall']) await borders.locator('.tray-pick').nth(photos.findIndex((f) => f.includes(n))).click();
-// A 4:5 canvas is taller than a 900 px window; let the preview shrink to fit the pane instead of scrolling.
-await page.addStyleTag({ content: '.borders-canvas-wrap { grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }' });
 await page.getByRole('group', { name: 'Canvas shape' }).getByRole('button', { name: '4:5' }).click();
 await page.getByRole('group', { name: 'Finish' }).getByRole('button', { name: 'Print mat' }).click();
 await settle('[data-testid="view-borders"]');
