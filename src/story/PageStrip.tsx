@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from 'react';
+import { Fragment, useState, type DragEvent } from 'react';
 import { Button } from '../ui/Controls';
 import { aspectRatio, type Story } from './model';
 
@@ -35,8 +35,9 @@ export function PageStrip({ story, pageIndex, thumbs, onSelect, onMove, onAdd, o
     <section className="story-strip" aria-label="Pages" data-testid="page-strip">
       <div className="strip-scroll">
         {story.pages.map((p, i) => (
+          <Fragment key={p.id}>
+          {i > 0 && !spreadWith(i - 1, 1) && <i className="strip-gap" aria-hidden="true"><span data-strip-at={i} /></i>}
           <div
-            key={p.id}
             className={`strip-item ${i === pageIndex ? 'current' : ''} ${over === i ? 'over' : ''} ${spreadWith(i, 1) ? 'link-next' : ''} ${spreadWith(i, -1) ? 'link-prev' : ''}`}
             data-testid="strip-page"
             draggable
@@ -52,7 +53,9 @@ export function PageStrip({ story, pageIndex, thumbs, onSelect, onMove, onAdd, o
             </div>
             <span className="strip-num">{i + 1}</span>
           </div>
+          </Fragment>
         ))}
+        <div className="strip-new" data-strip-at={story.pages.length} data-testid="strip-new-page" title="Drag a photo here to give it a page of its own">＋ New page</div>
       </div>
       <div className="strip-actions">
         <Button variant="soft" onClick={onAdd} title="Add a blank page after this one" data-testid="page-add">Add page</Button>

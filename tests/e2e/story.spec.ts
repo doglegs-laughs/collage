@@ -290,3 +290,66 @@ test('layout picker: choose, cycle with arrows, undo', async () => {
   for (let i = 0; i < 8 && (await name.textContent()) !== original; i++) await page.keyboard.press('ControlOrMeta+z');
   await expect(name).toHaveText(original);
 });
+
+test('move a photo to its own page: inspector, undo, context menu, shortcut', async () => {
+  test.setTimeout(180_000);
+  const land = Array.from({ length: 6 }, (_, i) => {
+    const out = path.join(dir, `land${i + 1}.jpg`);
+    execFileSync(ffmpeg, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=3000x2000', '-vf', `hue=h=${i * 40}`, '-frames:v', '1', out]);
+    return out;
+  });
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  await stubDialogs({ photos: land, folder, video: path.join(folder, 'x.mp4') });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(page.getByTestId('view-story').locator('.tray-item')).toHaveCount(6, { timeout: 60_000 });
+  await page.getByRole('button', { name: 'Clean', exact: true }).click();
+  await page.getByTestId('make-story').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+
+  const photoEls = page.locator('.story-page [data-testid="story-el-photo"]:not([data-ghost])');
+  const total = await stripCount();
+  let multi = -1;
+  for (let i = 0; i < total && multi < 0; i++) {
+    await page.getByTestId('strip-page').nth(i).click();
+    await expect(page.getByTestId('page-label')).toContainText(`Page ${i + 1} of`);
+    if ((await photoEls.count()) >= 2) multi = i;
+  }
+  expect(multi).toBeGreaterThanOrEqual(0);
+  await imagesLoaded().catch(() => {});
+
+  // The inspector lists Page, then the element, then Story.
+  await photoEls.first().locator('.se-photo').click();
+  const order = await page.getByTestId('story-inspector').locator('[data-testid^="inspector-"]').evaluateAll((n) => n.map((x) => x.getAttribute('data-testid')));
+  expect(order).toEqual(['inspector-page', 'inspector-element', 'inspector-story']);
+
+  const label = await page.getByTestId('page-label').textContent();
+  await page.getByTestId('move-own-page').click();
+  await expect(page.getByTestId('page-label')).toContainText(`Page ${multi + 2} of ${total + 1}`);
+  expect(await page.getByTestId('page-label').textContent()).not.toBe(label);
+  expect(await stripCount()).toBe(total + 1);
+  await expect(photoEls).toHaveCount(1);
+  await expect(page.locator('.toast.show')).toContainText(`Moved to page ${multi + 2}`);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(stripCount).toBe(total);
+
+  // Right-click shows the menu; Escape closes it.
+  await page.getByTestId('strip-page').nth(multi).click();
+  await photoEls.first().locator('.se-photo').click({ button: 'right' });
+  const menu = page.getByTestId('context-menu');
+  await expect(menu.getByRole('menuitem', { name: 'Move to its own page' })).toBeVisible();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(shots, 'own-page-menu.png') });
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+
+  // Context menu action, then the keyboard shortcut.
+  await photoEls.first().locator('.se-photo').click({ button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Move to its own page' }).click();
+  await expect.poll(stripCount).toBe(total + 1);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(stripCount).toBe(total);
+  await page.getByTestId('strip-page').nth(multi).click();
+  await photoEls.first().locator('.se-photo').click();
+  await page.keyboard.press('ControlOrMeta+Shift+n');
+  await expect.poll(stripCount).toBe(total + 1);
+});

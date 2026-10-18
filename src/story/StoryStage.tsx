@@ -25,6 +25,8 @@ export type StageProps = {
   setEditingId: (id: string | null) => void;
   onDropPhoto: (photoId: string, hit: DropHit) => void;
   onScale: (pageWidthPx: number) => void;
+  onContextMenu: (elementId: string, clientX: number, clientY: number) => void;
+  onDropOut: (at: { clientX: number; clientY: number }, ids: readonly string[]) => boolean;
 };
 
 /** Elements that stick out of their own page: drawn faintly beyond the page edges. */
@@ -68,7 +70,7 @@ export function StoryStage(p: StageProps) {
   const ghosts = useMemo(() => overflowing(story, pageIndex), [story, pageIndex]);
   const getPhoto = useCallback((id: string | null) => findPhoto(story, id), [story]);
 
-  const drag = useCanvasDrag({ pageRef, W, H, elements: page?.elements ?? [], visible, getPhoto, commit: p.onCommit });
+  const drag = useCanvasDrag({ pageRef, W, H, elements: page?.elements ?? [], visible, getPhoto, commit: p.onCommit, dropOut: p.onDropOut });
   const { overrides } = drag;
   const show = useCallback((el: El): El => (overrides[el.id] ? ({ ...el, ...overrides[el.id] } as El) : el), [overrides]);
 
@@ -100,6 +102,15 @@ export function StoryStage(p: StageProps) {
     const ids = selection.includes(id) ? selection : [id];
     if (!selection.includes(id)) p.onSelect(ids);
     drag.startMove(e, ids);
+  };
+
+  const onContext = (e: React.MouseEvent) => {
+    const target = (e.target as HTMLElement).closest<HTMLElement>('[data-el-id]');
+    if (!target || target.dataset.ghost !== undefined) return;
+    e.preventDefault();
+    const id = target.dataset.elId!;
+    if (!selection.includes(id)) p.onSelect([id]);
+    p.onContextMenu(id, e.clientX, e.clientY);
   };
 
   const onDouble = (e: React.MouseEvent) => {
@@ -142,6 +153,7 @@ export function StoryStage(p: StageProps) {
           style={{ background: page.background }}
           onPointerDown={onPageDown}
           onDoubleClick={onDouble}
+          onContextMenu={onContext}
           onDragOver={(e) => {
             if (!hasPhoto(e)) return;
             e.preventDefault();

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Button, Segmented, Slider } from '../ui/Controls';
 import type { Photo } from '../core/images';
 import { ColorInput, Field } from './fields';
@@ -21,6 +21,8 @@ type Props = {
   onAddText: () => void;
   onAddSlot: () => void;
   onAddRect: () => void;
+  /** Rendered between the Page and Story sections (the selected element's controls). */
+  children?: ReactNode;
 };
 
 /** Page and story-level controls (always shown under the element section). */
@@ -51,6 +53,7 @@ export function StoryInspector(p: Props) {
           <Button variant="soft" onClick={p.onAddRect}>Add shape</Button>
         </div>
       </section>
+      {p.children}
       <section className="section" data-testid="inspector-story">
         <div className="section-head"><h2 className="section-title">Story</h2></div>
         <Field label="Title">

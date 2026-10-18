@@ -15,7 +15,7 @@ function Rotation({ el, patch }: Common & { el: El }) {
   );
 }
 
-function PhotoInspector({ el, patch, onReplace, onRemove }: Common & { el: PhotoEl; onReplace: () => void; onRemove: () => void }) {
+function PhotoInspector({ el, patch, onReplace, onRemove, onMoveOwn, canMoveOwn }: Common & { el: PhotoEl; onReplace: () => void; onRemove: () => void; onMoveOwn: () => void; canMoveOwn: boolean }) {
   const preset = el.frameColor.toLowerCase() === '#ffffff' ? 'white' : el.frameColor.toLowerCase() === '#000000' ? 'black' : 'custom';
   return (
     <>
@@ -45,6 +45,14 @@ function PhotoInspector({ el, patch, onReplace, onRemove }: Common & { el: Photo
         <Button variant="soft" disabled={!el.photoId} onClick={() => patch({ crop: { ...DEFAULT_CROP } }, K(el.id, 'crop'))}>Reset crop</Button>
         <Button variant="soft" onClick={onReplace}>Replace photo</Button>
         <Button onClick={onRemove}>Remove</Button>
+      </div>
+      <div className="btn-row">
+        <Button
+          variant="soft" disabled={!canMoveOwn} onClick={onMoveOwn} data-testid="move-own-page"
+          title={canMoveOwn ? 'Give this photo a page of its own (⇧⌘N)' : 'This page has only one photo'}
+        >
+          Move to its own page
+        </Button>
       </div>
       <p className="hint">Double-click the photo to pan and zoom inside its frame.</p>
     </>
@@ -126,9 +134,11 @@ type Props = {
   onReplace: () => void;
   onRemove: () => void;
   onDuplicate: () => void;
+  onMoveOwn: () => void;
+  canMoveOwn: boolean;
 };
 
-export function ElementInspector({ els, patch, onReplace, onRemove, onDuplicate }: Props) {
+export function ElementInspector({ els, patch, onReplace, onRemove, onDuplicate, onMoveOwn, canMoveOwn }: Props) {
   if (els.length === 0) return null;
   if (els.length > 1) {
     return (
@@ -149,7 +159,7 @@ export function ElementInspector({ els, patch, onReplace, onRemove, onDuplicate 
         <h2 className="section-title">{el.kind === 'photo' ? 'Photo' : el.kind === 'text' ? 'Text' : 'Shape'}</h2>
         <button type="button" className="link" onClick={onDuplicate}>Duplicate</button>
       </div>
-      {el.kind === 'photo' ? <PhotoInspector {...common} el={el} onReplace={onReplace} onRemove={onRemove} /> : el.kind === 'text' ? <TextInspector {...common} el={el} /> : <RectInspector {...common} el={el} />}
+      {el.kind === 'photo' ? <PhotoInspector {...common} el={el} onReplace={onReplace} onRemove={onRemove} onMoveOwn={onMoveOwn} canMoveOwn={canMoveOwn} /> : el.kind === 'text' ? <TextInspector {...common} el={el} /> : <RectInspector {...common} el={el} />}
       {el.kind !== 'photo' && (
         <div className="btn-row"><Button onClick={onRemove}>Remove</Button></div>
       )}

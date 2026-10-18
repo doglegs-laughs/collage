@@ -19,6 +19,8 @@ type Inputs = {
   visible: El[];
   getPhoto: (id: string | null) => Photo | undefined;
   commit: (patches: Overrides) => void;
+  /** Called when a move ends; return true when the drop was handled elsewhere (the move is then discarded). */
+  dropOut?: (at: { clientX: number; clientY: number }, ids: readonly string[]) => boolean;
 };
 
 type Compute = (dx: number, dy: number, ev: PointerEvent) => { patches: Overrides; guides?: Guides };
@@ -33,7 +35,7 @@ export function useCanvasDrag(inputs: Inputs) {
   const live = useRef(inputs);
   live.current = inputs;
 
-  const run = useCallback((e: { clientX: number; clientY: number }, compute: Compute) => {
+  const run = useCallback((e: { clientX: number; clientY: number }, compute: Compute, handled?: (up: PointerEvent) => boolean) => {
     const sx = e.clientX;
     const sy = e.clientY;
     let moved = false;
@@ -48,13 +50,13 @@ export function useCanvasDrag(inputs: Inputs) {
       setOverrides(last);
       setGuides(r.guides ?? NO_GUIDES);
     };
-    const onUp = () => {
+    const onUp = (up: PointerEvent) => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
       setOverrides({});
       setGuides(NO_GUIDES);
-      if (moved) live.current.commit(last);
+      if (moved && !(up.type === 'pointerup' && handled?.(up))) live.current.commit(last);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -82,7 +84,7 @@ export function useCanvasDrag(inputs: Inputs) {
       const patches: Overrides = {};
       for (const el of sel) patches[el.id] = { x: el.x + mx / W, y: el.y + my / H };
       return { patches, guides };
-    });
+    }, (up) => live.current.dropOut?.(up, ids) ?? false);
   }, [run]);
 
   const startResize = useCallback((e: { clientX: number; clientY: number }, id: string, handle: Handle) => {
