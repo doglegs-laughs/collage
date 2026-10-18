@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { useToast } from '../ui/Toast';
 import { audioDuration, exportImages, exportVideo, isAbort } from './exportStory';
-import type { Story } from './model';
+import { visibleIndices, type Story } from './model';
 
 export type ExportJob = { kind: 'images' | 'video'; label: string; fraction: number | null };
 export type ExportDone = { message: string; reveal: string };
@@ -31,6 +31,7 @@ export function useExporter(getStory: () => Story) {
 
   const images = useCallback(async (width: number) => {
     if (abort.current) return;
+    if (!visibleIndices(getStory()).length) { toast('Every page is hidden, so there is nothing to export.', 'error'); return; }
     setDone(null);
     try {
       const folder = await api.chooseFolder();
@@ -55,6 +56,7 @@ export function useExporter(getStory: () => Story) {
 
   const video = useCallback(async (req: VideoRequest) => {
     if (abort.current) return;
+    if (!visibleIndices(getStory()).length) { toast('Every page is hidden, so there is nothing to export.', 'error'); return; }
     setDone(null);
     const ctl = new AbortController();
     abort.current = ctl;
@@ -70,7 +72,7 @@ export function useExporter(getStory: () => Story) {
       off = api.onVideoProgress((f) => {
         if (encoding.current) setJob({ kind: 'video', label: `Encoding video ${Math.round(f * 100)}%`, fraction: f });
       });
-      const total = story.pages.length;
+      const total = visibleIndices(story).length;
       const path = await exportVideo(story, {
         width: req.width, pageSeconds: req.pageSeconds, fitToMusicSeconds: music, signal: ctl.signal,
         onProgress: (d, t) => {

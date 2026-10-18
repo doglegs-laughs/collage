@@ -45,7 +45,23 @@ export interface Api {
   /** Tells the main process whether there is unsaved Story work (asks before closing or quitting). */
   setDirty(dirty: boolean): void;
   openProject(): Promise<{ path: string; json: string } | null>;
+  getRecentStories(): Promise<RecentStory[]>;
+  removeRecentStory(path: string): Promise<void>;
+  /** Reads a recent project; null (and drops it from the list) when the file is gone. */
+  openRecentStory(path: string): Promise<{ path: string; json: string } | null>;
+  /** Fires when File > Open Recent picks a project. */
+  onOpenRecent(cb: (file: { path: string; json: string }) => void): () => void;
+  /** Writes the autosave. `sidecar` holds photos with no file on disk that have not been sent yet. */
+  autosaveWrite(json: string, sidecar: SidecarPhoto[], meta: AutosaveMeta): Promise<boolean>;
+  autosaveRead(): Promise<AutosaveFile | null>;
+  autosaveClear(): Promise<void>;
+  /** The main process asks for an immediate autosave before closing; resolve true when it is written. */
+  onAutosaveFlush(cb: () => Promise<boolean>): () => void;
 }
+
+export interface RecentStory { path: string; name: string; exists: boolean }
+export interface AutosaveMeta { savedAt?: number; title?: string; pageCount?: number; thumb?: string | null }
+export interface AutosaveFile { path: string; json: string; meta: AutosaveMeta }
 
 declare global {
   interface Window { api?: Api }
@@ -78,6 +94,9 @@ function pickFiles(accept: string, multiple: boolean): Promise<File[]> {
 const mimeFor = (name: string) =>
   /\.jpe?g$/i.test(name) ? 'image/jpeg' : /\.png$/i.test(name) ? 'image/png' : /\.json$|\.collage$/i.test(name) ? 'application/json' : 'application/octet-stream';
 
+const AUTOSAVE_KEY = 'collage-autosave';
+const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
+
 const browserApi: Api = {
   platform: 'linux',
   pathForFile: () => '',
@@ -100,6 +119,19 @@ const browserApi: Api = {
     download(json, suggestedName, 'application/json');
     return suggestedName;
   },
+  getRecentStories: async () => [],
+  removeRecentStory: async () => {},
+  openRecentStory: async () => null,
+  onOpenRecent: () => () => {},
+  async autosaveWrite(json, _sidecar, meta) {
+    try { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({ json, meta: { ...meta, savedAt: Date.now() } })); return true; } catch { return false; }
+  },
+  async autosaveRead() {
+    const raw = lsGet(AUTOSAVE_KEY);
+    try { return raw ? { path: '', ...(JSON.parse(raw) as { json: string; meta: AutosaveMeta }) } : null; } catch { return null; }
+  },
+  async autosaveClear() { try { localStorage.removeItem(AUTOSAVE_KEY); } catch { /* ignore */ } },
+  onAutosaveFlush: () => () => {},
   async openProject() {
     const [file] = await pickFiles('.collage,.json,application/json', false);
     return file ? { path: file.name, json: await file.text() } : null;

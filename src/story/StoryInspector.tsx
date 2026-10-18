@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Button, Segmented, Slider } from '../ui/Controls';
 import type { Photo } from '../core/images';
-import { ColorInput, Field } from './fields';
+import { Check, ColorInput, Field } from './fields';
 import { LayoutPicker } from './LayoutPicker';
 import type { LayoutOption } from './layouts';
-import { ASPECTS, type Aspect, type Page, type StyleId, type Story } from './model';
+import { hasTitleEl } from './storyOps';
+import { ASPECTS, hiddenCount, type Aspect, type Page, type StyleId, type Story } from './model';
 
 type Change = { style?: StyleId; aspect?: Aspect };
 type Props = {
@@ -18,15 +19,23 @@ type Props = {
   onTitle: (t: string) => void;
   onSubtitle: (t: string) => void;
   onRecreate: (c: Change) => void;
+  onToggleHidden: () => void;
   onAddText: () => void;
   onAddSlot: () => void;
   onAddRect: () => void;
+  onAddTitlePage: () => void;
+  onAddTitleHere: () => void;
+  /** Rendered between the Page and Story sections (the selected element's controls). */
+  children?: ReactNode;
 };
 
 /** Page and story-level controls (always shown under the element section). */
 export function StoryInspector(p: Props) {
   const { story, page } = p;
   const [pending, setPending] = useState<Change | null>(null);
+  const [titleChoices, setTitleChoices] = useState(false);
+  const hasTitle = hasTitleEl(story);
+  const canAddTitle = !!story.title.trim();
   const request = (c: Change) => {
     if ((c.style ?? story.style) === story.style && (c.aspect ?? story.aspect) === story.aspect) return;
     setPending(c);
@@ -39,6 +48,7 @@ export function StoryInspector(p: Props) {
         <Field label="Layout">
           <LayoutPicker story={story} pageIndex={p.pageIndex} extraPhotos={p.extraPhotos} onApply={p.onLayout} testId="layout-section" />
         </Field>
+        <Check label="Hide page" checked={!!page.hidden} onChange={p.onToggleHidden} />
         <Field label="Background">
           <ColorInput label="Page background" value={page.background} onChange={(v) => p.onPage({ background: v }, `bg-${page.id}`)} />
         </Field>
@@ -49,12 +59,32 @@ export function StoryInspector(p: Props) {
           <Button variant="soft" onClick={p.onAddText}>Add text</Button>
           <Button variant="soft" onClick={p.onAddSlot}>Add photo slot</Button>
           <Button variant="soft" onClick={p.onAddRect}>Add shape</Button>
+          <Button variant="soft" data-testid="page-add-title" onClick={() => (hasTitle && canAddTitle ? p.onAddTitleHere() : setTitleChoices((v) => !v))}>Add title</Button>
         </div>
+        {titleChoices && (
+          <div className="confirm" role="group" aria-label="Add title">
+            {canAddTitle ? (
+              <div className="btn-row">
+                <Button variant="primary" onClick={() => { p.onAddTitlePage(); setTitleChoices(false); }}>Add title page</Button>
+                <Button onClick={() => { p.onAddTitleHere(); setTitleChoices(false); }}>Add to this page</Button>
+              </div>
+            ) : (
+              <p>Type a title in the Story section first.</p>
+            )}
+          </div>
+        )}
       </section>
+      {p.children}
       <section className="section" data-testid="inspector-story">
         <div className="section-head"><h2 className="section-title">Story</h2></div>
         <Field label="Title">
           <input className="text-input" aria-label="Story title" value={story.title} onChange={(e) => p.onTitle(e.target.value)} placeholder="Optional" />
+          {!hasTitle && canAddTitle && (
+            <div className="btn-row" data-testid="title-missing">
+              <Button variant="primary" onClick={p.onAddTitlePage}>Add title page</Button>
+              <Button onClick={p.onAddTitleHere}>Add to this page</Button>
+            </div>
+          )}
         </Field>
         <Field label="Subtitle">
           <input className="text-input" aria-label="Story subtitle" value={p.subtitle} onChange={(e) => p.onSubtitle(e.target.value)} placeholder="Optional" />
@@ -67,7 +97,7 @@ export function StoryInspector(p: Props) {
         </Field>
         {pending && (
           <div className="confirm" role="alertdialog" aria-label="Confirm re-create">
-            <p>Re-create every page with {what}? Your edits to the pages are replaced (undo brings them back).</p>
+            <p>Re-create every page with {what}? Your edits to the pages are replaced (undo brings them back).{hiddenCount(story) > 0 && ' Hidden pages will be regenerated too.'}</p>
             <div className="btn-row">
               <Button variant="primary" onClick={() => { p.onRecreate(pending); setPending(null); }}>Re-create</Button>
               <Button onClick={() => setPending(null)}>Cancel</Button>

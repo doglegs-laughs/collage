@@ -2,24 +2,29 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Photo } from '../core/images';
 import { usePhotoLibrary } from '../core/library';
 import { usePasteImages } from '../core/usePasteImages';
-import { api } from '../api';
+import { api, type AutosaveFile, type RecentStory } from '../api';
 import { PhotoTray } from '../ui/PhotoTray';
 import { Button } from '../ui/Controls';
 import { useToast } from '../ui/Toast';
 import { useVisible } from '../collage/useVisible';
+import { ContextMenu, type MenuItem } from './ContextMenu';
+import { DEFAULT_CROP } from '../core/geometry';
+import { moveToOwnPage } from './split';
 import { ElementInspector } from './ElementInspector';
 import { ExportStatus, ImagesDialog, VideoDialog } from './ExportDialogs';
 import { LayoutControl } from './LayoutControl';
 import { PageStrip } from './PageStrip';
-import { photoIdsInUse, removePhotos, updatePage, type El, type Story } from './model';
+import { aspectRatio, findPhoto, hiddenCount, photoIdsInUse, removePhotos, updatePage, type El, type Story } from './model';
 import { StoryEmpty, type MakeOpts } from './StoryEmpty';
 import { StoryInspector } from './StoryInspector';
 import { StoryStage, type DropHit } from './StoryStage';
 import { StoryTopbar } from './StoryTopbar';
+import { addTitlePage, addTitleToPage, newSeed } from './storyOps';
 import { useEditor } from './useEditor';
 import { useExporter } from './useExporter';
 import { usePageThumbs } from './usePageThumbs';
 import { useProject } from './useProject';
+import { useAutosave } from './useAutosave';
 import { useStory } from './useStory';
 import { useStoryKeys } from './useStoryKeys';
 import { useTraySelection } from './useTraySelection';
@@ -42,6 +47,19 @@ export function StoryView() {
   const project = useProject(getStory, lib, useCallback((s: Story) => { st.load(s); ed.goTo(0); }, [st.load, ed.goTo]), { isDirty, onSaved: st.markSaved }); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api.setDirty(st.dirty); }, [st.dirty]);
   usePasteImages(visible, (files) => void lib.addFiles(files));
+  useAutosave(story, thumbs[0] ?? null);
+  const [resume, setResume] = useState<AutosaveFile | null>(null);
+  const [recents, setRecents] = useState<RecentStory[]>([]);
+  const askedResume = useRef(false);
+  useEffect(() => {
+    if (askedResume.current) return;
+    askedResume.current = true;
+    api.autosaveRead().then((a) => { if (a) setResume(a); }).catch(() => {});
+  }, []);
+  const hasPagesNow = story.pages.length > 0;
+  useEffect(() => {
+    if (!hasPagesNow) api.getRecentStories().then(setRecents).catch(() => {});
+  }, [hasPagesNow]);
   const [panel, setPanel] = useState<null | 'images' | 'video'>(null);
   const [making, setMaking] = useState(false);
   const hasPages = story.pages.length > 0;
@@ -67,7 +85,9 @@ export function StoryView() {
       setMaking(false);
     }
   };
+  const confirmRegenerate = () => hiddenCount(story) === 0 || window.confirm('Hidden pages will be regenerated too. Continue?');
   const shuffle = () => {
+    if (!confirmRegenerate()) return;
     const photos = chosen();
     st.generate(photos.length ? photos : story.photos);
     ed.goTo(0);
@@ -77,6 +97,16 @@ export function StoryView() {
     ed.goTo(0);
   };
 
+  const addTitlePageNow = () => {
+    st.mutate((s) => addTitlePage(s, newSeed()));
+    ed.goTo(0);
+  };
+  const addTitleHere = () => {
+    const r = addTitleToPage(st.live.current, pageIndex);
+    if (!r.titleId) return;
+    st.mutate(() => r.story);
+    ed.select([r.titleId]);
+  };
   const dropPhoto = (photoId: string, hit: DropHit) => {
     const photo = lib.get(photoId);
     if (photo) ed.dropPhoto(photo, hit);
@@ -99,6 +129,42 @@ export function StoryView() {
     lib.clear();
     st.mutate((s) => removePhotos(s, ids));
   };
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [pageMenu, setPageMenu] = useState<{ i: number; x: number; y: number } | null>(null);
+  const closePageMenu = useCallback(() => setPageMenu(null), []);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const moveOwn = (elementId?: string, insertAt?: number) => {
+    const at = ed.moveOwn(elementId, insertAt);
+    if (at === null) { toast('That page has only one photo.', 'error'); return; }
+    toast(`Moved to page ${at + 1}`, 'success');
+  };
+  /** A stage drag that ended over the page strip's gaps or "New page" zone. */
+  const dropOut = (pt: { clientX: number; clientY: number }, ids: readonly string[]): boolean => {
+    const zone = document.elementFromPoint(pt.clientX, pt.clientY)?.closest<HTMLElement>('[data-strip-at]');
+    if (!zone) return false;
+    const el = page?.elements.find((e) => e.id === ids[0]);
+    if (ids.length !== 1 || el?.kind !== 'photo') return false;
+    moveOwn(el.id, Number(zone.dataset.stripAt));
+    return true;
+  };
+  const menuItems = (id: string): MenuItem[] => {
+    const el = page?.elements.find((e) => e.id === id);
+    if (!el) return [];
+    const common: MenuItem[] = [
+      { label: 'Duplicate', onSelect: ed.duplicate },
+      { label: 'Bring forward', onSelect: () => ed.zOrder('forward'), separator: true },
+      { label: 'Send backward', onSelect: () => ed.zOrder('backward') },
+      { label: 'Delete', onSelect: ed.remove, separator: true },
+    ];
+    if (el.kind !== 'photo') return common;
+    const can = !!moveToOwnPage(story, pageIndex, id);
+    return [
+      { label: 'Move to its own page', onSelect: () => moveOwn(id), disabled: !can, title: can ? undefined : 'This page has only one photo' },
+      { label: 'Replace photo…', onSelect: () => void replacePhoto() },
+      { label: 'Reset crop', onSelect: () => ed.patch([id], { crop: { ...DEFAULT_CROP } } as Partial<El>, `crop-${id}`), disabled: !el.photoId },
+      ...common,
+    ];
+  };
   const onScale = useCallback((w: number) => { ed.pxPerPage.current = w; }, [ed.pxPerPage]);
 
   useStoryKeys({
@@ -106,6 +172,8 @@ export function StoryView() {
     remove: ed.remove, nudge: ed.nudge, duplicate: ed.duplicate, undo: history.undo, redo: history.redo, zOrder: ed.zOrder,
     deselect: () => ed.select([]), selectAll: () => ed.select(page?.elements.map((e) => e.id) ?? []),
     exitCrop: () => ed.setCropId(null), goTo: ed.goTo, save: project.save, open: project.open, cycleLayout: ed.cycleLayout,
+    toggleHidden: () => ed.toggleHidden(),
+    moveToOwnPage: () => { if (selectedEls.length === 1 && selectedEls[0].kind === 'photo') moveOwn(); },
   });
 
   /** Tray-selected photos that are on no page yet, in selection order: they fill extra slots when a layout wants more photos. */
@@ -116,6 +184,8 @@ export function StoryView() {
   }, [story, lib.photos, tray.selected]);
 
   const selectedEls = useMemo<El[]>(() => (page ? page.elements.filter((e) => selection.includes(e.id)) : []), [page, selection]);
+
+  const canMoveSel = useMemo(() => selectedEls.length === 1 && selectedEls[0].kind === 'photo' && !!moveToOwnPage(story, pageIndex, selectedEls[0].id), [selectedEls, story, pageIndex]);
 
   return (
     <div ref={root} className={`story-view ${hasPages ? '' : 'empty'}`} data-testid="view-story">
@@ -139,31 +209,60 @@ export function StoryView() {
               <Button onClick={history.redo} disabled={!history.canRedo} title="Redo (⇧⌘Z)" data-testid="story-redo">Redo</Button>
               <span className="story-pagelabel" data-testid="page-label">Page {pageIndex + 1} of {story.pages.length}</span>
             </div>
+            {page.hidden && (
+              <div className="hidden-banner" role="status" data-testid="hidden-banner">
+                This page is hidden and won't be exported.
+                <button type="button" className="link" onClick={() => ed.toggleHidden()}>Show page</button>
+              </div>
+            )}
             <StoryStage
               story={story} pageIndex={pageIndex} selection={selection} cropId={ed.cropId} editingId={ed.editingId}
               onSelect={ed.select} onJump={ed.jump} onCommit={ed.commitOverrides}
               onCrop={(id, crop) => ed.patch([id], { crop } as Partial<El>, `crop-${id}`)}
               onText={(id, text) => ed.patch([id], { text } as Partial<El>)}
               setCropId={ed.setCropId} setEditingId={ed.setEditingId} onDropPhoto={dropPhoto} onScale={onScale}
+              onContextMenu={(id, x, y) => setMenu({ id, x, y })} onDropOut={dropOut}
             />
-            <PageStrip story={story} pageIndex={pageIndex} thumbs={thumbs} onSelect={ed.goTo} onMove={ed.pageMove} onAdd={ed.pageAdd} onDuplicate={ed.pageDuplicate} onDelete={ed.pageDelete} />
+            <PageStrip story={story} pageIndex={pageIndex} thumbs={thumbs} onSelect={ed.goTo} onMove={ed.pageMove} onToggleHidden={ed.toggleHidden} onMenu={(i, x, y) => setPageMenu({ i, x, y })} onAdd={ed.pageAdd} onDuplicate={ed.pageDuplicate} onDelete={ed.pageDelete} />
           </div>
           <aside className="sidebar story-insp" data-testid="story-inspector">
-            <ElementInspector
-              els={selectedEls} patch={(p, key) => ed.patchSelected(p, key)}
-              onReplace={() => void replacePhoto()} onRemove={ed.remove} onDuplicate={ed.duplicate}
-            />
             <StoryInspector
               story={story} subtitle={st.subtitle} page={page} pageIndex={pageIndex} extraPhotos={extraPhotos} onLayout={(o) => ed.pageLayout(o, extraPhotos)}
               onPage={(p, key) => st.mutate((s) => updatePage(s, pageIndex, p), key)}
               onTitle={st.setTitle} onSubtitle={st.setSubtitle} onRecreate={recreate}
-              onAddText={ed.addText} onAddSlot={ed.addSlot} onAddRect={ed.addRect}
-            />
+              onToggleHidden={() => ed.toggleHidden()} onAddText={ed.addText} onAddSlot={ed.addSlot} onAddRect={ed.addRect} onAddTitlePage={addTitlePageNow} onAddTitleHere={addTitleHere}
+            >
+              <ElementInspector
+                els={selectedEls} patch={(p, key) => ed.patchSelected(p, key)}
+                onReplace={() => void replacePhoto()} onRemove={ed.remove} onDuplicate={ed.duplicate}
+                onMoveOwn={() => moveOwn()} canMoveOwn={canMoveSel} getPhoto={(id) => findPhoto(story, id)} pageRatio={aspectRatio(story.aspect)}
+              />
+            </StoryInspector>
           </aside>
         </>
       ) : (
-        <StoryEmpty photoCount={lib.photos.length} busy={making} onMake={(o) => void make(o)} />
+        <StoryEmpty
+          photoCount={lib.photos.length} busy={making} onMake={(o) => void make(o)}
+          resumeProps={{
+            resume, recents,
+            onContinue: () => { if (resume) { void project.openFile({ path: resume.path, json: resume.json }, 'Story restored'); setResume(null); } },
+            onDismiss: () => setResume(null),
+            onOpenRecent: (p) => void project.openRecent(p),
+            onRemoveRecent: (p) => { void api.removeRecentStory(p).then(() => api.getRecentStories()).then(setRecents); },
+          }}
+        />
       )}
+      {pageMenu && story.pages[pageMenu.i] && (
+        <ContextMenu
+          x={pageMenu.x} y={pageMenu.y} label="Page actions" onClose={closePageMenu}
+          items={[
+            { label: story.pages[pageMenu.i].hidden ? 'Show page' : 'Hide page', onSelect: () => ed.toggleHidden(pageMenu.i) },
+            { label: 'Duplicate page', onSelect: () => { ed.goTo(pageMenu.i); ed.pageDuplicate(); } },
+            { label: 'Delete page', onSelect: () => { ed.goTo(pageMenu.i); ed.pageDelete(); }, separator: true },
+          ]}
+        />
+      )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.id)} onClose={closeMenu} />}
       <StoryTopbar
         visible={visible} hasPages={hasPages} busy={!!exporter.job}
         onOpen={() => void project.open()} onSave={() => void project.save()} onImages={() => setPanel('images')} onVideo={() => setPanel('video')}

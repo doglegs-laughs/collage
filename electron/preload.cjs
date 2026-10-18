@@ -16,6 +16,22 @@ contextBridge.exposeInMainWorld('api', {
   saveProject: (json, suggestedName, sidecar) => invoke('project:save', json, suggestedName, sidecar),
   setDirty: (dirty) => ipcRenderer.send('app:set-dirty', dirty === true),
   openProject: () => invoke('project:open'),
+  getRecentStories: () => invoke('recent:list'),
+  removeRecentStory: (path) => invoke('recent:remove', path),
+  openRecentStory: (path) => invoke('recent:open', path),
+  onOpenRecent: (cb) => {
+    const handler = (_event, file) => cb(file);
+    ipcRenderer.on('project:open-recent', handler);
+    return () => ipcRenderer.removeListener('project:open-recent', handler);
+  },
+  autosaveWrite: (json, sidecar, meta) => invoke('autosave:write', json, sidecar, meta),
+  autosaveRead: () => invoke('autosave:read'),
+  autosaveClear: () => invoke('autosave:clear'),
+  onAutosaveFlush: (cb) => {
+    const handler = () => { Promise.resolve(cb()).then((ok) => ipcRenderer.send('autosave:flushed', ok === true), () => ipcRenderer.send('autosave:flushed', false)); };
+    ipcRenderer.on('autosave:flush', handler);
+    return () => ipcRenderer.removeListener('autosave:flush', handler);
+  },
   makeVideo: (job) => invoke('video:make', job),
   onVideoProgress: (cb) => {
     const handler = (_event, fraction) => cb(fraction);

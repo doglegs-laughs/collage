@@ -2,9 +2,10 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { clamp } from '../core/geometry';
 import type { Photo } from '../core/images';
 import {
-  addElement, addPage, addPhotos, aspectRatio, defaultPhotoEl, defaultRectEl, defaultTextEl, duplicatePage, duplicateElements, emptyPage, groupOf, movePageTo, photoIdsInUse, removeElements,
+  addElement, addPage, addPhotos, aspectRatio, defaultPhotoEl, defaultRectEl, defaultTextEl, duplicatePage, duplicateElements, emptyPage, groupOf, movePageTo, photoIdsInUse, removeElements, setPageHidden,
   removePage, reorderZ, replacePhoto, updateElements, type El, type Page, type Story, type ZMove,
 } from './model';
+import { moveToOwnPage } from './split';
 import { applyLayout, nextLayout, pageSeed, type LayoutOption } from './layouts';
 import type { Overrides } from './useCanvasDrag';
 
@@ -132,6 +133,25 @@ export function useEditor(story: Story, mutate: Mutate) {
     mutate((s) => movePageTo(s, from, to).story);
     goTo(r.index);
   }, [mutate, goTo]);
+  /** Hide or show a page (with its spread group) in exports: one undo step. */
+  const toggleHidden = useCallback((index?: number) => {
+    const { story: s, pageIndex: pi } = live.current;
+    const at = index ?? pi;
+    const page = s.pages[at];
+    if (!page) return;
+    mutate((st) => setPageHidden(st, at, !page.hidden));
+  }, [mutate]);
+  /** Send a photo (default: the selected one) to a page of its own, as one undo step. Returns the new page's index, or null when not possible. */
+  const moveOwn = useCallback((elementId?: string, insertAt?: number): number | null => {
+    const { story: s, pageIndex: pi, selection: sel } = live.current;
+    const id = elementId ?? (sel.length === 1 ? sel[0] : undefined);
+    if (!id) return null;
+    const r = moveToOwnPage(s, pi, id, { seed: pageSeed(s, pi), insertAt });
+    if (!r) return null;
+    mutate(() => r.story);
+    goTo(r.pageIndex);
+    return r.pageIndex;
+  }, [mutate, goTo]);
   /** Switch the current page (or spread) to a layout: one undo step. `extra` are library photos that may fill additional slots. */
   const pageLayout = useCallback((option: LayoutOption, extra: Photo[] = []) => {
     const { story: s, pageIndex: pi } = live.current;
@@ -155,7 +175,7 @@ export function useEditor(story: Story, mutate: Mutate) {
   return {
     pageIndex, page, selection, cropId, editingId, setCropId, setEditingId, goTo, select, jump, patch, patchSelected, commitOverrides,
     remove, duplicate, nudge, zOrder, addText, addRect, addSlot, dropPhoto, replaceSelectedPhoto,
-    pageAdd, pageDuplicate, pageDelete, pageMove, pageLayout, cycleLayout, pxPerPage,
+    pageAdd, pageDuplicate, pageDelete, pageMove, toggleHidden, moveOwn, pageLayout, cycleLayout, pxPerPage,
   };
 }
 export type Editor = ReturnType<typeof useEditor>;

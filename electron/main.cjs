@@ -3,12 +3,15 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { atomicWrite, readImage, exists, writeSidecar } = require('./files.cjs');
 const video = require('./video.cjs');
+const store = require('./store.cjs');
 
 const isMac = process.platform === 'darwin';
 const devUrl = process.env.VITE_DEV_SERVER_URL;
 // TIFF is converted with sips, so it is only offered on macOS (HEIC stays listed to give a clear message elsewhere).
 const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif', 'heic', 'heif', ...(isMac ? ['tif', 'tiff'] : [])];
 const AUDIO_EXT = ['mp3', 'm4a', 'aac', 'wav', 'aiff', 'flac', 'ogg'];
+
+if (process.env.COLLAGE_USER_DATA) app.setPath('userData', process.env.COLLAGE_USER_DATA);
 
 if (process.env.COLLAGE_NO_SANDBOX === '1' || (process.getuid && process.getuid() === 0)) {
   app.commandLine.appendSwitch('no-sandbox');
@@ -19,6 +22,20 @@ let dirty = false; // unsaved Story work, reported by the renderer
 let discardConfirmed = false; // the user already chose Discard for this close/quit
 let quitting = false;
 const crashes = [];
+
+let autosavePaths = {}; // photo id -> stored path, for photos written to "Autosave Photos" this session
+
+/** Ask the renderer to write its autosave now. Resolves true when that worked. */
+function requestFlush() {
+  const wc = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
+  if (!wc) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { ipcMain.removeListener('autosave:flushed', done); resolve(false); }, 5000);
+    const done = (_e, ok) => { clearTimeout(timer); resolve(ok === true); };
+    ipcMain.once('autosave:flushed', done);
+    wc.send('autosave:flush');
+  });
+}
 
 /** Ask before throwing away unsaved work. Returns true when it is fine to go on. */
 function confirmDiscard(parent) {
@@ -54,7 +71,13 @@ function createWindow() {
   });
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('close', (event) => {
-    if (!confirmDiscard(mainWindow)) event.preventDefault();
+    if (!dirty || discardConfirmed) return;
+    event.preventDefault();
+    const w = mainWindow;
+    void requestFlush().then((ok) => {
+      if (ok) discardConfirmed = true; // autosaved: nothing is lost, so no prompt
+      if ((ok || confirmDiscard(w)) && w && !w.isDestroyed()) w.close();
+    });
   });
   mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
@@ -81,8 +104,33 @@ function createWindow() {
   else mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'renderer', 'index.html'));
 }
 
+let recentList = [];
+async function refreshRecents(add, remove) {
+  const dir = app.getPath('userData');
+  let list = await store.loadRecents(dir);
+  if (add) list = store.addRecent(list, add);
+  if (remove) list = store.removeRecent(list, remove);
+  if (add || remove) await store.saveRecents(dir, list).catch(() => {});
+  recentList = await store.describeRecents(dir);
+  buildMenu();
+}
+
+async function openRecent(file) {
+  try {
+    const json = await fs.readFile(file, 'utf8');
+    if (mainWindow) mainWindow.webContents.send('project:open-recent', { path: file, json });
+    await refreshRecents(file);
+  } catch {
+    dialog.showMessageBoxSync(win(), { type: 'error', message: `${path.basename(file)} was not found.` });
+    await refreshRecents(null, file);
+  }
+}
+
 function buildMenu() {
   const dev = !app.isPackaged;
+  const recentItems = recentList.length
+    ? recentList.map((r) => ({ label: r.exists ? r.name : `${r.name} (Not found)`, enabled: r.exists, click: () => void openRecent(r.path) }))
+    : [{ label: 'No recent stories', enabled: false }];
   const template = [
     ...(isMac ? [{
       label: app.name,
@@ -93,7 +141,7 @@ function buildMenu() {
         { role: 'quit' },
       ],
     }] : []),
-    { label: 'File', submenu: [isMac ? { role: 'close' } : { role: 'quit' }] },
+    { label: 'File', submenu: [{ label: 'Open Recent', submenu: recentItems }, { type: 'separator' }, isMac ? { role: 'close' } : { role: 'quit' }] },
     {
       label: 'Edit',
       submenu: [
@@ -152,13 +200,41 @@ function registerIpc() {
     let text = String(json);
     if (Array.isArray(sidecar) && sidecar.length) text = await writeSidecar(r.filePath, text, sidecar);
     await atomicWrite(r.filePath, Buffer.from(text, 'utf8'));
+    await refreshRecents(r.filePath);
     return r.filePath;
   });
   ipcMain.handle('project:open', async () => {
     const r = await dialog.showOpenDialog(win(), { properties: ['openFile'], filters: filterFor('Collage project', ['collage', 'json']) });
     if (r.canceled) return null;
-    return { path: r.filePaths[0], json: await fs.readFile(r.filePaths[0], 'utf8') };
+    const json = await fs.readFile(r.filePaths[0], 'utf8');
+    await refreshRecents(r.filePaths[0]);
+    return { path: r.filePaths[0], json };
   });
+  ipcMain.handle('recent:list', () => store.describeRecents(app.getPath('userData')));
+  ipcMain.handle('recent:remove', async (_e, file) => { await refreshRecents(null, String(file)); });
+  ipcMain.handle('recent:open', async (_e, file) => {
+    const f = String(file);
+    try {
+      const json = await fs.readFile(f, 'utf8');
+      await refreshRecents(f);
+      return { path: f, json };
+    } catch {
+      await refreshRecents(null, f);
+      return null;
+    }
+  });
+
+  ipcMain.handle('autosave:write', async (_e, json, sidecar, meta) => {
+    try {
+      autosavePaths = await store.writeAutosave(app.getPath('userData'), json, sidecar, autosavePaths, meta);
+      return true;
+    } catch (error) {
+      console.error('Autosave failed', error);
+      return false;
+    }
+  });
+  ipcMain.handle('autosave:read', () => store.readAutosave(app.getPath('userData')));
+  ipcMain.handle('autosave:clear', async () => { autosavePaths = {}; await store.clearAutosave(app.getPath('userData')); });
 
   // Returns the output path, or '' when the user cancels the save dialog.
   ipcMain.handle('video:make', async (event, job) => {
@@ -180,6 +256,7 @@ function registerIpc() {
 app.whenReady().then(() => {
   registerIpc();
   buildMenu();
+  void refreshRecents();
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
@@ -191,8 +268,12 @@ app.on('before-quit', (event) => {
     event.preventDefault(); // already cancelling the video; app.quit() runs again when it is done
     return;
   }
-  if (!confirmDiscard(mainWindow)) {
+  if (dirty && !discardConfirmed) {
     event.preventDefault();
+    void requestFlush().then((ok) => {
+      if (ok) discardConfirmed = true;
+      if (ok || confirmDiscard(mainWindow)) app.quit();
+    });
     return;
   }
   if (video.isRunning()) {

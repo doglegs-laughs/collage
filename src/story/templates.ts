@@ -92,8 +92,9 @@ type Built = { pages: El[][]; bg?: string };
 
 const ADVANCE: Record<TextEl['font'], number> = { display: 0.58, displaySans: 0.56, serif: 0.55, sans: 0.54, mono: 0.6 };
 
+type TitleStyle = { font: TextEl['font']; weight: TextEl['weight']; color: string; ls: number; upper: boolean; shadow: boolean };
 /** Large title sized so the longest line spans ~80% of the page width, clamped to 5%..13% of page height. */
-function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: number, o: { font: TextEl['font']; weight: TextEl['weight']; color: string; ls: number; upper: boolean; shadow: boolean }): TextEl[] {
+function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: number, o: TitleStyle): TextEl[] {
   const adv = ADVANCE[o.font] * (o.upper ? 1 : 0.8) + o.ls;
   const minFu = 0.05 * c.H;
   const maxFu = 0.13 * c.H;
@@ -102,12 +103,26 @@ function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: numb
   const lines = single >= minFu || flat.includes('\n') === false && !/\s/.test(flat) ? [flat] : breakLines(title, Math.max(4, Math.floor(0.8 / (minFu * adv))));
   const longest = Math.max(1, ...lines.map((l) => l.length));
   const fu = clampN(0.8 / (longest * adv), minFu, maxFu);
-  const out = [textEl(c, { x: 0.05, y, w: 0.9, h: lines.length * fu * 1.25 }, fu, { text: lines.join('\n'), font: o.font, weight: o.weight, color: o.color, letterSpacing: o.ls, uppercase: o.upper, shadow: o.shadow, align: 'center' })];
+  const out = [textEl(c, { x: 0.05, y, w: 0.9, h: lines.length * fu * 1.25 }, fu, { text: lines.join('\n'), role: 'title', font: o.font, weight: o.weight, color: o.color, letterSpacing: o.ls, uppercase: o.upper, shadow: o.shadow, align: 'center' })];
   if (subtitle) {
     const sfu = 0.022 * c.H;
-    out.push(textEl(c, { x: 0.05, y: y + lines.length * fu * 1.25 + sfu * 0.5, w: 0.9, h: sfu * 1.4 }, sfu, { text: subtitle, font: 'displaySans', weight: 300, color: o.color, letterSpacing: 0.3, uppercase: true, shadow: o.shadow, align: 'center' }));
+    out.push(textEl(c, { x: 0.05, y: y + lines.length * fu * 1.25 + sfu * 0.5, w: 0.9, h: sfu * 1.4 }, sfu, { text: subtitle, role: 'subtitle', font: 'displaySans', weight: 300, color: o.color, letterSpacing: 0.3, uppercase: true, shadow: o.shadow, align: 'center' }));
   }
   return out;
+}
+
+/**
+ * Title (and subtitle) text elements for any page, auto-sized like the cover template.
+ * `y` is the top as a fraction of page height (default 0.09). Elements carry roles 'title' / 'subtitle'.
+ */
+export function titleElements(aspect: Aspect, title: string, subtitle: string | undefined, o: { font?: TextEl['font']; color?: string; y?: number; shadow?: boolean } = {}): TextEl[] {
+  const A = aspectRatio(aspect);
+  const c: Ctx = { A, H: 1 / A, g: 0.025, m: 0.025, seed: 1, opts: {} };
+  const sans = o.font === 'displaySans';
+  const font = o.font ?? 'display';
+  const color = o.color ?? '#ffffff';
+  const els = titleBlock(c, title, subtitle?.trim() || undefined, (o.y ?? 0.09) * c.H, { font, weight: sans ? 300 : 400, color, ls: sans ? 0.25 : 0.18, upper: true, shadow: o.shadow ?? color.toLowerCase() === '#ffffff' });
+  return els.map((e, z) => ({ ...e, z }));
 }
 
 const buildCover = (sans: boolean) => (c: Ctx, [p]: Photo[]): Built => {
@@ -275,7 +290,7 @@ function buildPolaroidOnPhoto(c: Ctx, [bg, card]: Photo[]): Built {
     const ty = cy + dy * Math.cos(t);
     const tw = cw * 0.8;
     const th = band * 0.5;
-    els.push(textEl(c, { x: tx - tw / 2, y: ty - th / 2, w: tw, h: th }, band * 0.26, { text: c.opts.caption, font: 'mono', weight: 400, color: '#3a3733', rotation: rot, align: 'center' }));
+    els.push(textEl(c, { x: tx - tw / 2, y: ty - th / 2, w: tw, h: th }, band * 0.26, { text: c.opts.caption, role: 'title', font: 'mono', weight: 400, color: '#3a3733', rotation: rot, align: 'center' }));
   }
   return { pages: [els] };
 }
@@ -287,9 +302,9 @@ function buildMagazine(c: Ctx, [p]: Photo[]): Built {
     const lines = breakLines(c.opts.title, 12);
     const fu = Math.min(0.11, 0.8 / (Math.max(...lines.map((l) => l.length)) * 0.55));
     const th = lines.length * fu * 1.2;
-    els.push(textEl(c, { x: c.m + 0.04, y: c.m + ph - th - 0.03, w: Wav - 0.08, h: th }, fu, { text: lines.join('\n'), font: 'serif', weight: 600, color: '#ffffff', align: 'left', shadow: true }));
+    els.push(textEl(c, { x: c.m + 0.04, y: c.m + ph - th - 0.03, w: Wav - 0.08, h: th }, fu, { text: lines.join('\n'), role: 'title', font: 'serif', weight: 600, color: '#ffffff', align: 'left', shadow: true }));
   }
-  if (c.opts.subtitle) els.push(textEl(c, { x: c.m, y: c.m + ph + 0.015, w: Wav, h: 0.03 }, 0.018, { text: c.opts.subtitle, font: 'mono', color: '#444444', align: 'left' }));
+  if (c.opts.subtitle) els.push(textEl(c, { x: c.m, y: c.m + ph + 0.015, w: Wav, h: 0.03 }, 0.018, { text: c.opts.subtitle, role: 'subtitle', font: 'mono', color: '#444444', align: 'left' }));
   return { pages: [els] };
 }
 function buildPrintMat(c: Ctx, photos: Photo[]): Built {
@@ -306,6 +321,46 @@ function buildPrintMat(c: Ctx, photos: Photo[]): Built {
       photoEl(c, photos[1], { x, y: y0 + s.h0 + c.g, w: s.w, h: s.h1 }),
     ]],
   };
+}
+/** Shared paper-mat chrome and sizing for the print-mat family (mirrors print-mat: 0.04 padding, >= 0.05 page margin). */
+const MAT_PAD = 0.04;
+const matAvail = (c: Ctx) => {
+  const m2 = Math.max(c.m, 0.05) + MAT_PAD;
+  return { aw: 1 - 2 * m2, ah: c.H - 2 * m2 };
+};
+/** Mat sized around a block of `bw` x `bh`, centred on the page, plus the block's top-left corner inside it. */
+function matAround(c: Ctx, bw: number, bh: number) {
+  const paper: Rect = centered(c, bw + 2 * MAT_PAD, bh + 2 * MAT_PAD);
+  return { paper, x: paper.x + MAT_PAD, y: paper.y + MAT_PAD, rect: rectEl(c, paper, { fill: '#ffffff', stroke: '#d6d6d6', strokeWidth: 0.0012, shadow: true }) };
+}
+const clampedMean = (photos: Photo[], lo: number, hi: number) => clampN(photos.reduce((a, p) => a + ar(p), 0) / Math.max(photos.length, 1), lo, hi);
+/** Three landscapes stacked at a shared wide aspect, or three portraits side by side at a shared tall aspect. */
+function buildPrintMat3(c: Ctx, photos: Photo[]): Built {
+  const { aw, ah } = matAvail(c);
+  const stacked = photos.reduce((a, p) => a + ar(p), 0) / Math.max(photos.length, 1) >= 1;
+  if (stacked) {
+    // Crop wide enough that the stack fills the mat width, like the reference stacks (up to ~2.6:1).
+    const a = clampN(Math.max(clampedMean(photos, 1.3, 1.9), (3 * aw) / (ah - 2 * c.g)), 1.3, 2.6);
+    const w = Math.min(aw, (ah - 2 * c.g) / (3 / a));
+    const h = w / a;
+    const mat = matAround(c, w, 3 * h + 2 * c.g);
+    return { pages: [[mat.rect, ...photos.slice(0, 3).map((p, i) => photoEl(c, p, { x: mat.x, y: mat.y + i * (h + c.g), w, h }))]] };
+  }
+  const a = clampedMean(photos, 0.5, 0.8);
+  const h = Math.min(ah, (aw - 2 * c.g) / (3 * a));
+  const w = a * h;
+  const mat = matAround(c, 3 * w + 2 * c.g, h);
+  return { pages: [[mat.rect, ...photos.slice(0, 3).map((p, i) => photoEl(c, p, { x: mat.x + i * (w + c.g), y: mat.y, w, h }))]] };
+}
+/** Four photos in a 2x2 grid inside one mat; cells take the shared orientation's aspect (square-ish when mixed). */
+function buildPrintMat4(c: Ctx, photos: Photo[]): Built {
+  const { aw, ah } = matAvail(c);
+  const os = photos.slice(0, 4).map(orientationOf);
+  const a = os.every((o) => o === 'l') ? clampedMean(photos, 1.2, 1.8) : os.every((o) => o === 'p') ? clampedMean(photos, 0.55, 0.83) : 1;
+  const w = Math.min((aw - c.g) / 2, ((ah - c.g) / 2) * a);
+  const h = w / a;
+  const mat = matAround(c, 2 * w + c.g, 2 * h + c.g);
+  return { pages: [[mat.rect, ...photos.slice(0, 4).map((p, i) => photoEl(c, p, { x: mat.x + (i % 2) * (w + c.g), y: mat.y + Math.floor(i / 2) * (h + c.g), w, h }))]] };
 }
 function buildSplit(c: Ctx, [a, s, b]: Photo[]): Built {
   const { Hav } = dims(c);
@@ -376,7 +431,11 @@ export const TEMPLATES: Template[] = [
   make({ id: 'polaroid-scatter', name: 'Polaroid scatter', category: 'story', slots: 3, want: W(0.7, 0.7, 0.9), build: buildScatter(3) }),
   make({ id: 'polaroid-scatter-2', name: 'Polaroid pair', category: 'story', slots: 2, want: W(0.7, 0.7, 0.9), build: buildScatter(2) }),
   make({ id: 'magazine', name: 'Magazine', category: 'story', slots: 1, want: W(0.8, 0.8, 0.7), build: buildMagazine }),
-  make({ id: 'print-mat', name: 'Print mat', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, only: ['l'], build: buildPrintMat }),
+  make({ id: 'print-mat', name: 'Print mat (2)', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, only: ['l'], build: buildPrintMat }),
+  { ...make({ id: 'print-mat-3', name: 'Print mat (3)', category: 'trio', slots: 3, want: W(1, 1, 0), build: buildPrintMat3 }),
+    fits: (o, aspect) => (o.length < 3 ? 0 : o.slice(0, 3).every((x) => x === 'l') ? tallPage(aspect ? aspectRatio(aspect) : 0.8) : o.slice(0, 3).every((x) => x === 'p') ? 1 : 0) },
+  { ...make({ id: 'print-mat-4', name: 'Print mat (4)', category: 'grid', slots: 4, want: W(1, 1, 1), build: buildPrintMat4 }),
+    fits: (o) => (o.length < 4 ? 0 : new Set(o.slice(0, 4)).size > 1 ? 0.3 : o[0] === 's' ? 0.6 : 1) },
   make({ id: 'polaroid-on-photo', name: 'Polaroid on photo', category: 'story', slots: 2, want: W(0.8, 0.8, 0.8), build: buildPolaroidOnPhoto }),
   make({ id: 'seamless-split', name: 'Seamless split', category: 'story', slots: 3, pages: 2, want: W(1, 0.3, 0.6), build: buildSplit }),
 ];
@@ -386,7 +445,7 @@ export const getTemplate = (id: string | null | undefined): Template | undefined
 /** Template ids offered by each style for auto-fill (cover / panorama / overview are handled explicitly by autofill). */
 export const STYLE_TEMPLATE_IDS: Record<StyleId, string[]> = {
   clean: ['inset-single', 'single-border', 'stack-2', 'stack-3', 'pair-side'],
-  stylized: ['matted-single', 'framed-portrait', 'print-mat', 'polaroid-on-photo', 'seamless-split', 'stack-2-tight', 'stack-3-tight', 'polaroid-scatter'],
+  stylized: ['matted-single', 'framed-portrait', 'print-mat', 'print-mat-3', 'print-mat-4', 'polaroid-on-photo', 'seamless-split', 'stack-2-tight', 'stack-3-tight', 'polaroid-scatter'],
   carousel: ['stack-2', 'stack-3', 'matted-single', 'seamless-split', 'single-border', 'inset-single'],
   gallery: ['pair-stacked', 'pair-side', 'trio', 'triptych', 'grid-2x2', 'inset-single', 'single-border'],
   film: ['film-strip', 'film-strip-4', 'single-border', 'matted-single'],

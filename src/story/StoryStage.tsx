@@ -1,5 +1,5 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import type { Crop } from '../core/geometry';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { clamp, MAX_ZOOM, zoomAt, type Crop } from '../core/geometry';
 import { PHOTO_DRAG_TYPE } from '../ui/PhotoTray';
 import { ElementView } from './ElementView';
 import { aspectRatio, elementsVisibleOnPage, findPhoto, sortByZ, type El, type Story, type VisibleEl } from './model';
@@ -25,6 +25,8 @@ export type StageProps = {
   setEditingId: (id: string | null) => void;
   onDropPhoto: (photoId: string, hit: DropHit) => void;
   onScale: (pageWidthPx: number) => void;
+  onContextMenu: (elementId: string, clientX: number, clientY: number) => void;
+  onDropOut: (at: { clientX: number; clientY: number }, ids: readonly string[]) => boolean;
 };
 
 /** Elements that stick out of their own page: drawn faintly beyond the page edges. */
@@ -68,14 +70,47 @@ export function StoryStage(p: StageProps) {
   const ghosts = useMemo(() => overflowing(story, pageIndex), [story, pageIndex]);
   const getPhoto = useCallback((id: string | null) => findPhoto(story, id), [story]);
 
-  const drag = useCanvasDrag({ pageRef, W, H, elements: page?.elements ?? [], visible, getPhoto, commit: p.onCommit });
+  const drag = useCanvasDrag({ pageRef, W, H, elements: page?.elements ?? [], visible, getPhoto, commit: p.onCommit, dropOut: p.onDropOut });
   const { overrides } = drag;
   const show = useCallback((el: El): El => (overrides[el.id] ? ({ ...el, ...overrides[el.id] } as El) : el), [overrides]);
+
+  // Wheel / pinch over the selected photo zooms inside its frame, anchored at the cursor.
+  const wheelLive = useRef({ story, pageIndex, selection, W, H, onCrop: p.onCrop });
+  wheelLive.current = { story, pageIndex, selection, W, H, onCrop: p.onCrop };
+  const hasPage = !!page;
+  useEffect(() => {
+    const pageEl = pageRef.current;
+    if (!pageEl) return;
+    const onWheel = (e: WheelEvent) => {
+      const { story: s, pageIndex: pi, selection: sel, W: w, H: h, onCrop } = wheelLive.current;
+      if (sel.length !== 1) return;
+      const hit = (e.target as HTMLElement).closest<HTMLElement>('[data-el-id]');
+      if (!hit || hit.dataset.ghost !== undefined || hit.dataset.elId !== sel[0]) return;
+      const el = s.pages[pi]?.elements.find((x) => x.id === sel[0]);
+      const photo = el?.kind === 'photo' ? findPhoto(s, el.photoId) : undefined;
+      if (!el || el.kind !== 'photo' || !photo) return;
+      e.preventDefault();
+      const L = layoutElementPx(el, w, h);
+      const r = pageEl.getBoundingClientRect();
+      const rad = (-el.rotation * Math.PI) / 180;
+      const vx = e.clientX - r.left - L.cx;
+      const vy = e.clientY - r.top - L.cy;
+      const lx = L.cx + vx * Math.cos(rad) - vy * Math.sin(rad);
+      const ly = L.cy + vx * Math.sin(rad) + vy * Math.cos(rad);
+      const ax = clamp((lx - L.inner.x) / Math.max(1, L.inner.w), 0, 1);
+      const ay = clamp((ly - L.inner.y) / Math.max(1, L.inner.h), 0, 1);
+      const rate = e.ctrlKey ? 0.01 : 0.0015;
+      const unit = e.deltaMode === 1 ? 16 : 1;
+      onCrop(el.id, zoomAt(photo, el.crop, L.inner.w / Math.max(1, L.inner.h), clamp(el.crop.zoom * Math.exp(-e.deltaY * unit * rate), 1, MAX_ZOOM), ax, ay));
+    };
+    pageEl.addEventListener('wheel', onWheel, { passive: false });
+    return () => pageEl.removeEventListener('wheel', onWheel);
+  }, [hasPage]);
 
   if (!page) return <div className="story-stage" ref={stage} />;
 
   const selectedEls = page.elements.filter((e) => selection.includes(e.id)).map(show);
-  const single = selectedEls.length === 1 && !p.cropId && !p.editingId ? selectedEls[0] : null;
+  const single = selectedEls.length === 1 && !p.editingId ? selectedEls[0] : null;
 
   const onPageDown = (e: ReactPointerEvent) => {
     if (e.button !== 0) return;
@@ -92,14 +127,26 @@ export function StoryStage(p: StageProps) {
       p.onJump(Number(target.dataset.ghost), id);
       return;
     }
-    if (id === p.cropId || id === p.editingId) return;
+    if (id === p.editingId) return;
+    const el = page.elements.find((x) => x.id === id);
     if (e.shiftKey) {
       p.onSelect(selection.includes(id) ? selection.filter((s) => s !== id) : [...selection, id]);
       return;
     }
     const ids = selection.includes(id) ? selection : [id];
     if (!selection.includes(id)) p.onSelect(ids);
-    drag.startMove(e, ids);
+    // A plain drag inside a photo pans the photo within its frame, unless the frame is in "move" mode (double-click) or several elements are selected.
+    if (el?.kind === 'photo' && el.photoId && ids.length === 1 && id !== p.cropId) drag.startPan(e, id);
+    else drag.startMove(e, ids);
+  };
+
+  const onContext = (e: React.MouseEvent) => {
+    const target = (e.target as HTMLElement).closest<HTMLElement>('[data-el-id]');
+    if (!target || target.dataset.ghost !== undefined) return;
+    e.preventDefault();
+    const id = target.dataset.elId!;
+    if (!selection.includes(id)) p.onSelect([id]);
+    p.onContextMenu(id, e.clientX, e.clientY);
   };
 
   const onDouble = (e: React.MouseEvent) => {
@@ -107,7 +154,7 @@ export function StoryStage(p: StageProps) {
     if (!target || target.dataset.ghost !== undefined) return;
     const id = target.dataset.elId!;
     p.onSelect([id]);
-    if (target.dataset.kind === 'photo' && page.elements.find((x) => x.id === id && x.kind === 'photo' && x.photoId)) p.setCropId(id);
+    if (target.dataset.kind === 'photo') p.setCropId(id);
     else if (target.dataset.kind === 'text') p.setEditingId(id);
   };
 
@@ -137,11 +184,12 @@ export function StoryStage(p: StageProps) {
         </div>
         <div
           ref={pageRef}
-          className="story-page"
+          className={`story-page ${drag.panning ? 'panning' : ''}`}
           data-testid="story-page"
           style={{ background: page.background }}
           onPointerDown={onPageDown}
           onDoubleClick={onDouble}
+          onContextMenu={onContext}
           onDragOver={(e) => {
             if (!hasPhoto(e)) return;
             e.preventDefault();
@@ -205,7 +253,7 @@ export function StoryStage(p: StageProps) {
           })}
           {drag.guides.x.map((x) => <i key={`gx${x}`} className="guide v" style={{ left: x }} />)}
           {drag.guides.y.map((y) => <i key={`gy${y}`} className="guide h" style={{ top: y }} />)}
-          {p.cropId && <div className="crop-hint">Drag to pan, scroll to zoom. Enter to finish.</div>}
+          {p.cropId && <div className="crop-hint">Drag to move the frame. Esc or Enter to finish.</div>}
         </div>
       </div>
     </div>

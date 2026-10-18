@@ -25,7 +25,7 @@ const shadowCss = (W: number) => {
   return `0 ${s.offsetY}px ${s.blur}px ${s.color}`;
 };
 
-function PhotoBody({ el, W, H, photo, cropping, onCrop }: ElementViewProps & { el: PhotoEl }) {
+function PhotoBody({ el, W, H, photo, onCrop }: ElementViewProps & { el: PhotoEl }) {
   const L = layoutElementPx(el, W, H);
   const { inner } = L;
   const framed = L.frame > 0 || L.frameBottom > 0;
@@ -46,7 +46,7 @@ function PhotoBody({ el, W, H, photo, cropping, onCrop }: ElementViewProps & { e
             photo={photo}
             crop={el.crop}
             aspect={(inner.w + 2 * pad) / Math.max(1, inner.h + 2 * pad)}
-            interactive={cropping}
+            interactive={false}
             onCropChange={(c) => onCrop?.(el.id, c)}
             style={{ position: 'absolute', left: -pad, top: -pad, width: inner.w + 2 * pad, height: inner.h + 2 * pad, filter: pad ? `blur(${pad / 2}px)` : undefined, background: 'transparent' }}
           />
@@ -138,7 +138,7 @@ function RectBody({ el, W, H }: { el: RectEl; W: number; H: number }) {
 export const ElementView = memo(function ElementView(props: ElementViewProps) {
   const { el, ghostOf, hot } = props;
   return (
-    <div className={`se ${hot ? 'hot' : ''}`} data-el-id={el.id} data-kind={el.kind} data-ghost={ghostOf ?? undefined} data-testid={`story-el-${el.kind}`}>
+    <div className={`se ${hot ? 'hot' : ''}`} data-el-id={el.id} data-kind={el.kind} data-ghost={ghostOf ?? undefined} data-testid={`story-el-${el.kind}`} data-crop={el.kind === 'photo' ? `${el.crop.zoom.toFixed(3)},${el.crop.cx.toFixed(4)},${el.crop.cy.toFixed(4)}` : undefined}>
       {el.kind === 'photo' ? <PhotoBody {...props} el={el} /> : el.kind === 'text' ? <TextBody {...props} el={el} /> : <RectBody el={el} W={props.W} H={props.H} />}
     </div>
   );

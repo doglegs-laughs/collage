@@ -12,7 +12,7 @@ function makeId(rng: () => number): string {
 }
 
 /** Lay a template out into pages; ids are drawn from `rng` so output is deterministic per seed. */
-function buildPages(t: Template, aspect: Aspect, photos: Photo[], opts: LayoutOpts, rng: () => number): Page[] {
+export function buildPages(t: Template, aspect: Aspect, photos: Photo[], opts: LayoutOpts, rng: () => number): Page[] {
   const res = t.layout(aspect, photos, { ...opts, seed: Math.floor(rng() * 1e9) });
   return res.pages.map((els, i) => ({
     id: makeId(rng),

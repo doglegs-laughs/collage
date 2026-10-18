@@ -1,7 +1,7 @@
 import { api, type VideoJob } from '../api';
 import { toJpeg } from '../core/canvas';
 import { getBitmapForSize } from '../core/images';
-import { crossesBoundary, evenPageSize, type Story } from './model';
+import { crossesBoundary, evenPageSize, visibleIndices, visiblePages, type Story } from './model';
 import { renderPage, type GetBitmap, type PageCanvas } from './render';
 
 export type Progress = (done: number, total: number) => void;
@@ -17,15 +17,16 @@ const check = (signal?: AbortSignal) => {
 
 /** Render each page, handing it to `sink` and releasing the canvas afterwards. Photos are decoded one element at a time at the size that element needs. */
 async function renderAll(story: Story, width: number, signal: AbortSignal | undefined, onProgress: Progress | undefined, sink: (canvas: PageCanvas, i: number) => Promise<void>) {
-  for (let i = 0; i < story.pages.length; i++) {
+  const indices = visibleIndices(story); // hidden pages are skipped; `sink` gets the position in the exported sequence
+  for (let k = 0; k < indices.length; k++) {
     check(signal);
-    onProgress?.(i, story.pages.length);
-    const canvas = await renderPage(story, i, width, getBitmapForSize as GetBitmap, { closeAfterDraw: true });
+    onProgress?.(k, indices.length);
+    const canvas = await renderPage(story, indices[k], width, getBitmapForSize as GetBitmap, { closeAfterDraw: true });
     check(signal);
-    await sink(canvas, i);
+    await sink(canvas, k);
     if ('width' in canvas) { canvas.width = 0; canvas.height = 0; }
   }
-  onProgress?.(story.pages.length, story.pages.length);
+  onProgress?.(indices.length, indices.length);
 }
 
 const sanitize = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -43,7 +44,7 @@ export async function freeName(dir: string, base: string, ext: string): Promise<
 
 export type ImagesResult = { folder: string; files: string[] };
 export async function exportImages(story: Story, o: { folder: string; width: number; signal?: AbortSignal; onProgress?: Progress }): Promise<ImagesResult> {
-  const digits = Math.max(2, String(story.pages.length).length);
+  const digits = Math.max(2, String(visibleIndices(story).length).length);
   const base = storyBaseName(story);
   const files: string[] = [];
   await renderAll(story, o.width, o.signal, o.onProgress, async (canvas, i) => {
@@ -79,15 +80,17 @@ export function fitDurations(durations: number[], musicSeconds: number): number[
 
 /** Per-page durations: individual overrides win, the rest take `pageSeconds`; optionally stretched to fill the music. */
 export function videoDurations(story: Story, pageSeconds: number, musicSeconds?: number | null): number[] {
-  const d = story.pages.map((p) => (Math.abs(p.duration - DEFAULT_PAGE_SECONDS) < 1e-6 ? pageSeconds : p.duration));
+  const d = visiblePages(story).map((p) => (Math.abs(p.duration - DEFAULT_PAGE_SECONDS) < 1e-6 ? pageSeconds : p.duration));
   return musicSeconds && musicSeconds > 0 && d.length ? fitDurations(d, musicSeconds) : d;
 }
 
 /** Transitions: 'slide' where an element crosses the seam, else the chosen one; Ken Burns off beside a slide. */
 export function videoTransitions(story: Story): { transitions: ('none' | 'crossfade' | 'slide')[]; kenBurnsPages: boolean[] } {
-  const n = story.pages.length;
-  const transitions = Array.from({ length: Math.max(0, n - 1) }, (_, i) => (crossesBoundary(story, i) ? ('slide' as const) : story.video.transition));
-  const kenBurnsPages = story.pages.map((_, i) => story.video.kenBurns && transitions[i - 1] !== 'slide' && transitions[i] !== 'slide');
+  const idx = visibleIndices(story);
+  const n = idx.length;
+  // A seam only slides when its two pages are neighbours in the story; a hidden page between them makes it an ordinary cut.
+  const transitions = Array.from({ length: Math.max(0, n - 1) }, (_, k) => (idx[k + 1] === idx[k] + 1 && crossesBoundary(story, idx[k]) ? ('slide' as const) : story.video.transition));
+  const kenBurnsPages = idx.map((_, i) => story.video.kenBurns && transitions[i - 1] !== 'slide' && transitions[i] !== 'slide');
   return { transitions, kenBurnsPages };
 }
 

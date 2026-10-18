@@ -247,3 +247,67 @@ describe('reference sizing', () => {
     expect(f.h).toBeCloseTo(0.86, 9);
   });
 });
+
+describe('print mat family', () => {
+  const sized = (n: number, w: number, h: number) => Array.from({ length: n }, (_, i) => ({ id: `q${i}`, name: 'q.jpg', width: w, height: h }));
+  const L = [4000, 3000] as const;
+  const P = [3000, 4000] as const;
+  const cases: [string, number, readonly [number, number]][] = [['print-mat-3', 3, L], ['print-mat-3', 3, P], ['print-mat-4', 4, L], ['print-mat-4', 4, P]];
+  it('names', () => {
+    expect(getTemplate('print-mat')!.name).toBe('Print mat (2)');
+    expect(getTemplate('print-mat-3')!.name).toBe('Print mat (3)');
+    expect(getTemplate('print-mat-4')!.name).toBe('Print mat (4)');
+  });
+  for (const [id, n, [pw, ph]] of cases) {
+    for (const aspect of ASPECTS) {
+      it(`${id} ${pw}x${ph} @ ${aspect}: inside centred mat, equal gutters`, () => {
+        const t = getTemplate(id)!;
+        const A = aspectRatio(aspect);
+        const H = 1 / A;
+        const els = t.layout(aspect, sized(n, pw, ph)).pages[0];
+        const mat = els.find((e) => e.kind === 'rect')!;
+        const photos = els.filter((e): e is PhotoEl => e.kind === 'photo');
+        expect(photos).toHaveLength(n);
+        const rs = photos.map((e) => ({ l: e.x, r: e.x + e.w, t: e.y / A, b: (e.y + e.h) / A, w: e.w }));
+        const m = { l: mat.x, r: mat.x + mat.w, t: mat.y / A, b: (mat.y + mat.h) / A };
+        expect(m.l).toBeGreaterThanOrEqual(-EPS);
+        expect(m.t).toBeGreaterThanOrEqual(-EPS);
+        expect(m.r).toBeLessThanOrEqual(1 + EPS);
+        expect(m.b).toBeLessThanOrEqual(H + EPS);
+        expect(m.l + m.r).toBeCloseTo(1, 9);
+        expect(m.t + m.b).toBeCloseTo(H, 9);
+        for (const r of rs) {
+          expect(r.l).toBeGreaterThanOrEqual(m.l - EPS);
+          expect(r.r).toBeLessThanOrEqual(m.r + EPS);
+          expect(r.t).toBeGreaterThanOrEqual(m.t - EPS);
+          expect(r.b).toBeLessThanOrEqual(m.b + EPS);
+        }
+        const minL = Math.min(...rs.map((r) => r.l)), maxR = Math.max(...rs.map((r) => r.r));
+        const minT = Math.min(...rs.map((r) => r.t)), maxB = Math.max(...rs.map((r) => r.b));
+        expect((minL + maxR) / 2).toBeCloseTo(0.5, 9);
+        expect((minT + maxB) / 2).toBeCloseTo(H / 2, 9);
+        const gaps: number[] = [];
+        if (id === 'print-mat-3') {
+          const stacked = pw > ph;
+          for (let i = 1; i < 3; i++) gaps.push(stacked ? rs[i].t - rs[i - 1].b : rs[i].l - rs[i - 1].r);
+          if (stacked) for (const r of rs) expect(r.w).toBeCloseTo(rs[0].w, 9);
+        } else {
+          gaps.push(rs[1].l - rs[0].r, rs[3].l - rs[2].r, rs[2].t - rs[0].b, rs[3].t - rs[1].b);
+        }
+        for (const g of gaps) expect(Math.abs(g - gaps[0])).toBeLessThan(1e-9);
+        expect(gaps[0]).toBeCloseTo(0.025, 9);
+      });
+    }
+  }
+  it('orientation scoring', () => {
+    const m3 = getTemplate('print-mat-3')!;
+    const m4 = getTemplate('print-mat-4')!;
+    expect(m3.fits(['l', 'l', 'l'], '4:5')).toBeGreaterThan(0);
+    expect(m3.fits(['p', 'p', 'p'], '4:5')).toBeGreaterThan(0);
+    expect(m3.fits(['l', 'p', 'l'], '4:5')).toBe(0);
+    expect(m3.fits(['l', 'l', 'p'], '4:5')).toBe(0);
+    expect(m4.fits(['l', 'l', 'l', 'l'], '4:5')).toBeGreaterThan(m4.fits(['l', 'p', 'l', 'p'], '4:5'));
+    expect(m4.fits(['p', 'p', 'p', 'p'], '4:5')).toBeGreaterThan(m4.fits(['l', 'p', 'l', 'p'], '4:5'));
+    expect(m4.fits(['l', 'p', 'l', 'p'], '4:5')).toBeGreaterThan(0);
+  });
+});
