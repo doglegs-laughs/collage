@@ -15,6 +15,8 @@ let dir: string;
 let photos: string[];
 let app: ElectronApplication;
 let page: Page;
+/** The Story view root. Collage "Layout mode" keeps a second StoryStage mounted (hidden), so Story locators must not be page-wide. */
+const story = () => page.getByTestId('view-story');
 
 /** Edit > Undo / Redo through the real application menu (synthesized keys never reach the menu, and in the app the menu owns the accelerators). */
 const menu = async (id: 'undo' | 'redo') => {
@@ -50,7 +52,7 @@ test.afterEach(async () => {
 });
 
 test('preview a photo, step through, toggle include, close; clear all', async () => {
-  const view = page.getByTestId('view-story');
+  const view = story();
   await page.getByRole('button', { name: 'Add photos' }).click();
   const items = view.locator('.tray-item');
   await expect(items).toHaveCount(3, { timeout: 60_000 });
@@ -74,7 +76,7 @@ test('preview a photo, step through, toggle include, close; clear all', async ()
   // Exactly one image is visible in the overlay and no hover preview is showing.
   const visibleImgs = await overlay.locator('img').evaluateAll((els) => els.filter((e) => getComputedStyle(e).opacity !== '0' && e.getBoundingClientRect().width > 0).map((e) => e.className));
   expect(visibleImgs).toEqual(['lightbox-img ready']);
-  await expect(page.locator('.hover-preview')).toHaveCount(0);
+  await expect(story().locator('.hover-preview')).toHaveCount(0);
   await page.screenshot({ path: path.join(shots, 'photo-preview.png') });
 
   await overlay.getByRole('checkbox').click();
@@ -106,12 +108,12 @@ test('preview a photo, step through, toggle include, close; clear all', async ()
 
 test('Clear all in Story can be undone and the images render again', async () => {
   test.setTimeout(120_000);
-  const view = page.getByTestId('view-story');
+  const view = story();
   await page.getByRole('button', { name: 'Add photos' }).click();
   const items = view.locator('.tray-item');
   await expect(items).toHaveCount(3, { timeout: 60_000 });
-  await page.getByTestId('make-story').click();
-  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  await story().getByTestId('make-story').click();
+  await expect(story().getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
   const stageImages = () =>
     page.waitForFunction(() => {
       const imgs = [...document.querySelectorAll('[data-testid="view-story"] .story-stage img')] as HTMLImageElement[];
