@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Photo } from '../core/images';
 import { usePhotoLibrary } from '../core/library';
 import { usePasteImages } from '../core/usePasteImages';
-import { api } from '../api';
+import { api, type AutosaveFile, type RecentStory } from '../api';
 import { PhotoTray } from '../ui/PhotoTray';
 import { Button } from '../ui/Controls';
 import { useToast } from '../ui/Toast';
@@ -24,6 +24,7 @@ import { useEditor } from './useEditor';
 import { useExporter } from './useExporter';
 import { usePageThumbs } from './usePageThumbs';
 import { useProject } from './useProject';
+import { useAutosave } from './useAutosave';
 import { useStory } from './useStory';
 import { useStoryKeys } from './useStoryKeys';
 import { useTraySelection } from './useTraySelection';
@@ -46,6 +47,19 @@ export function StoryView() {
   const project = useProject(getStory, lib, useCallback((s: Story) => { st.load(s); ed.goTo(0); }, [st.load, ed.goTo]), { isDirty, onSaved: st.markSaved }); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api.setDirty(st.dirty); }, [st.dirty]);
   usePasteImages(visible, (files) => void lib.addFiles(files));
+  useAutosave(story, thumbs[0] ?? null);
+  const [resume, setResume] = useState<AutosaveFile | null>(null);
+  const [recents, setRecents] = useState<RecentStory[]>([]);
+  const askedResume = useRef(false);
+  useEffect(() => {
+    if (askedResume.current) return;
+    askedResume.current = true;
+    api.autosaveRead().then((a) => { if (a) setResume(a); }).catch(() => {});
+  }, []);
+  const hasPagesNow = story.pages.length > 0;
+  useEffect(() => {
+    if (!hasPagesNow) api.getRecentStories().then(setRecents).catch(() => {});
+  }, [hasPagesNow]);
   const [panel, setPanel] = useState<null | 'images' | 'video'>(null);
   const [making, setMaking] = useState(false);
   const hasPages = story.pages.length > 0;
@@ -227,7 +241,16 @@ export function StoryView() {
           </aside>
         </>
       ) : (
-        <StoryEmpty photoCount={lib.photos.length} busy={making} onMake={(o) => void make(o)} />
+        <StoryEmpty
+          photoCount={lib.photos.length} busy={making} onMake={(o) => void make(o)}
+          resumeProps={{
+            resume, recents,
+            onContinue: () => { if (resume) { void project.openFile({ path: resume.path, json: resume.json }, 'Story restored'); setResume(null); } },
+            onDismiss: () => setResume(null),
+            onOpenRecent: (p) => void project.openRecent(p),
+            onRemoveRecent: (p) => { void api.removeRecentStory(p).then(() => api.getRecentStories()).then(setRecents); },
+          }}
+        />
       )}
       {pageMenu && story.pages[pageMenu.i] && (
         <ContextMenu

@@ -29,17 +29,28 @@ test.beforeAll(() => {
 });
 test.afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-test.beforeEach(async () => {
-  app = await electron.launch({ executablePath: electronPath, args: [root, '--no-sandbox'], env: { ...process.env, COLLAGE_NO_SANDBOX: '1' } });
+let userData: string;
+async function launch() {
+  app = await electron.launch({ executablePath: electronPath, args: [root, '--no-sandbox'], env: { ...process.env, COLLAGE_NO_SANDBOX: '1', COLLAGE_USER_DATA: userData } });
   page = await app.firstWindow();
   await page.waitForSelector('.topbar');
   await page.setViewportSize({ width: 1500, height: 950 });
   await page.getByRole('tab', { name: 'Story' }).click();
+}
+/** Close the window the normal way (autosave flushes, no prompt) and start the app again on the same user data. */
+async function relaunch() {
+  await app.close();
+  await launch();
+}
+test.beforeEach(async () => {
+  userData = fs.mkdtempSync(path.join(os.tmpdir(), 'story-userdata-'));
+  await launch();
 });
 test.afterEach(async () => {
   // Unsaved edits make the app ask before quitting; answer "Discard" so the test can end.
-  await app.evaluate(({ dialog }) => { dialog.showMessageBoxSync = (() => 1) as never; });
-  await app.close();
+  await app.evaluate(({ dialog }) => { dialog.showMessageBoxSync = (() => 1) as never; }).catch(() => {});
+  await app.close().catch(() => {});
+  fs.rmSync(userData, { recursive: true, force: true });
 });
 
 const stubDialogs = (args: { photos: string[]; folder: string; video: string }) =>
@@ -195,7 +206,7 @@ test('move, nudge, text edit and page management', async () => {
   await expect.poll(() => page.locator('.story-page [data-testid="story-el-photo"]').count()).toBeGreaterThanOrEqual(count);
 });
 
-test('closing the window with unsaved changes asks first, and Cancel keeps it open', async () => {
+test('closing the window with unsaved changes autosaves instead of asking', async () => {
   test.setTimeout(120_000);
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
   await stubDialogs({ photos, folder, video: path.join(folder, 'x.mp4') });
@@ -209,11 +220,14 @@ test('closing the window with unsaved changes asks first, and Cancel keeps it op
       g.__asked = 0;
       dialog.showMessageBoxSync = (() => { g.__asked++; return 0; }) as never;
       BrowserWindow.getAllWindows()[0].close();
-      return { asked: g.__asked, windows: BrowserWindow.getAllWindows().length };
+      return null;
     });
   await page.getByTestId('page-add').click();
   await page.waitForTimeout(500);
-  expect(await close()).toEqual({ asked: 1, windows: 1 });
+  const closed = app.waitForEvent('close');
+  await close();
+  await closed;
+  expect(fs.existsSync(path.join(userData, 'autosave', 'current.story.json'))).toBe(true);
 });
 
 test('layout picker: choose, cycle with arrows, undo', async () => {
@@ -507,4 +521,95 @@ test('add a title page or put the title on a page after making a story without o
   expect(await stripCount()).toBe(n);
   await expect(stageText.first()).toContainText(/midsummer/i);
   await expect(page.getByTestId('selection-box')).toHaveCount(1);
+});
+
+async function makeEditedStory(project: string) {
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(page.getByTestId('view-story').locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  await page.getByTestId('story-title').fill('Round trip');
+  await page.getByTestId('make-story').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  // Edit: nudge a photo on page 2, hide page 3, retitle.
+  await page.getByTestId('strip-page').nth(1).click();
+  await imagesLoaded().catch(() => {});
+  const el = page.locator('.story-page [data-testid="story-el-photo"] .se-photo').first();
+  await el.click();
+  await page.keyboard.press('Shift+ArrowRight');
+  const item = page.getByTestId('strip-page').nth(2);
+  await item.hover();
+  await item.getByTestId('strip-eye').click();
+  await expect(item).toHaveAttribute('data-hidden', 'true');
+  await page.getByLabel('Story title').fill('Round trip 2');
+  await page.getByTestId('strip-page').nth(1).click();
+  const box = await page.locator('.story-page [data-testid="story-el-photo"] .se-photo').first().boundingBox();
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => fs.existsSync(project)).toBe(true);
+  return box!;
+}
+
+test('save, relaunch, open: pages, title, hidden flags and photos come back', async () => {
+  test.setTimeout(180_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  const project = path.join(folder, 'trip.collage');
+  await stubDialogs({ photos, folder, video: project });
+  const total0 = await (async () => { await makeEditedStory(project); return stripCount(); })();
+  const saved = JSON.parse(fs.readFileSync(project, 'utf8'));
+  expect(saved.title).toBe('Round trip 2');
+  expect(saved.pages.filter((p: { hidden?: boolean }) => p.hidden)).toHaveLength(1);
+  expect(saved.pages.some((p: { elements: { crop?: unknown }[] }) => p.elements.some((e) => e.crop))).toBe(true);
+  const savedBox = await page.locator('.story-page [data-testid="story-el-photo"] .se-photo').first().boundingBox();
+
+  await relaunch();
+  await stubDialogs({ photos: [project], folder, video: project });
+  await page.keyboard.press('ControlOrMeta+o');
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  expect(await stripCount()).toBe(total0);
+  await expect(page.getByLabel('Story title')).toHaveValue('Round trip 2');
+  await expect(page.getByTestId('strip-page').nth(2)).toHaveAttribute('data-hidden', 'true');
+  await page.getByTestId('strip-page').nth(1).click();
+  await imagesLoaded();
+  const box = await page.locator('.story-page [data-testid="story-el-photo"] .se-photo').first().boundingBox();
+  expect(Math.abs(box!.x - savedBox!.x)).toBeLessThan(2);
+  expect(Math.abs(box!.y - savedBox!.y)).toBeLessThan(2);
+});
+
+test('autosave: relaunch offers Continue and restores the story', async () => {
+  test.setTimeout(180_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  await stubDialogs({ photos, folder, video: path.join(folder, 'x.mp4') });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(page.getByTestId('view-story').locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  await page.getByTestId('story-title').fill('Left off');
+  await page.getByTestId('make-story').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  const n = await stripCount();
+  await page.getByTestId('page-add').click(); // an edit after generation
+  // Closing flushes the autosave and does not ask about unsaved changes (the dialog is not stubbed).
+  await relaunch();
+  await expect(page.getByTestId('resume-card')).toContainText('Left off');
+  await expect(page.getByTestId('resume-card')).toContainText(`${n + 1} pages`);
+  await page.getByTestId('resume-continue').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  expect(await stripCount()).toBe(n + 1);
+  await expect(page.getByLabel('Story title')).toHaveValue('Left off');
+  await imagesLoaded();
+});
+
+test('Open Recent lists saved stories and marks missing files', async () => {
+  test.setTimeout(180_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  const project = path.join(folder, 'recent.collage');
+  await stubDialogs({ photos, folder, video: project });
+  await makeEditedStory(project);
+  await relaunch();
+  await page.getByTestId('resume-new').click();
+  await page.getByTestId('recent-story').first().click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByLabel('Story title')).toHaveValue('Round trip 2');
+  fs.rmSync(project);
+  await relaunch();
+  await expect(page.getByTestId('recent-story').first()).toBeDisabled();
+  await expect(page.getByTestId('recent-stories')).toContainText('Not found');
+  await page.getByTestId('recent-stories').getByRole('button', { name: 'Remove' }).click();
+  await expect(page.getByTestId('recent-story')).toHaveCount(0);
 });

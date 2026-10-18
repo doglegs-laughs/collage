@@ -353,3 +353,12 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 .strip-item:hover .strip-eye, .strip-eye:focus-visible, .strip-item.is-hidden .strip-eye { opacity: 1; }
 .strip-count { font-size: 11.5px; font-weight: 600; color: var(--muted, #64748b); text-align: center; white-space: nowrap; }
 .hidden-banner { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 6px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); font-size: 12.5px; font-weight: 600; }
+
+.story-empty-stack { display: grid; gap: 16px; width: min(520px, 100%); }
+.story-empty-stack .story-empty-card { width: 100%; box-sizing: border-box; }
+.resume-card { grid-template-columns: auto 1fr; align-items: center; border: 2px solid var(--accent, #4f6ef7); }
+.resume-thumb { width: 96px; border-radius: 8px; box-shadow: var(--shadow); }
+.resume-body h2, .recent-stories h2 { margin: 0 0 4px; font-size: 18px; }
+.resume-body .lede { margin: 0 0 12px; }
+.recent-stories ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.recent-stories .muted { color: var(--muted); font-size: 13px; }

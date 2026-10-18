@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { api, isDesktop, type SidecarPhoto } from '../api';
 import type { PhotoLibrary } from '../core/library';
 import { useToast } from '../ui/Toast';
@@ -65,10 +65,9 @@ export function useProject(getStory: () => Story, lib: PhotoLibrary, onLoad: (s:
     }
   }, [getStory, toast, onSaved]);
 
-  const open = useCallback(async () => {
+  /** Load a project file's contents (from the Open dialog, a recent entry or the autosave). */
+  const openFile = useCallback(async (file: { path: string; json: string }, label = 'Project opened') => {
     try {
-      const file = await api.openProject();
-      if (!file) return;
       if (isDirty?.() && !window.confirm('Opening a project replaces the story you are editing, and its unsaved changes will be lost. Open anyway?')) return;
       const parsed = deserializeStory(file.json);
       const loaded = { ...parsed, photos: parsed.photos.map((p) => (p.path ? { ...p, path: resolvePhotoPath(file.path, p.path) } : p)) };
@@ -77,7 +76,7 @@ export function useProject(getStory: () => Story, lib: PhotoLibrary, onLoad: (s:
       const { story, missing } = relinkPhotos(loaded, found);
       onLoad(story);
       toast(
-        missing.length ? `Opened, but ${missing.length} photo${missing.length === 1 ? ' is' : 's are'} missing: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? '…' : ''}` : 'Project opened',
+        missing.length ? `Opened, but ${missing.length} photo${missing.length === 1 ? ' is' : 's are'} missing: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? '…' : ''}` : label,
         missing.length ? 'error' : 'success',
       );
     } catch (e) {
@@ -85,5 +84,22 @@ export function useProject(getStory: () => Story, lib: PhotoLibrary, onLoad: (s:
     }
   }, [lib, onLoad, toast, isDirty]);
 
-  return { save, open };
+  const open = useCallback(async () => {
+    try {
+      const file = await api.openProject();
+      if (file) await openFile(file);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not open the project.', 'error');
+    }
+  }, [openFile, toast]);
+
+  const openRecent = useCallback(async (path: string) => {
+    const file = await api.openRecentStory(path);
+    if (file) await openFile(file);
+    else toast('That file was not found.', 'error');
+  }, [openFile, toast]);
+
+  useEffect(() => api.onOpenRecent((file) => void openFile(file)), [openFile]);
+
+  return { save, open, openFile, openRecent };
 }
