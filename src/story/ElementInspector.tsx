@@ -1,4 +1,5 @@
-import { DEFAULT_CROP } from '../core/geometry';
+import { DEFAULT_CROP, MAX_ZOOM, zoomAt } from '../core/geometry';
+import type { Photo } from '../core/images';
 import { Button, Segmented, Slider } from '../ui/Controls';
 import { Check, ColorInput, Field, deg, pct } from './fields';
 import { FONT_KEYS, FONT_LABELS } from './fonts';
@@ -15,10 +16,21 @@ function Rotation({ el, patch }: Common & { el: El }) {
   );
 }
 
-function PhotoInspector({ el, patch, onReplace, onRemove, onMoveOwn, canMoveOwn }: Common & { el: PhotoEl; onReplace: () => void; onRemove: () => void; onMoveOwn: () => void; canMoveOwn: boolean }) {
+function PhotoInspector({ el, patch, onReplace, onRemove, onMoveOwn, canMoveOwn, photo, pageRatio }: Common & { photo?: Photo; pageRatio: number; el: PhotoEl; onReplace: () => void; onRemove: () => void; onMoveOwn: () => void; canMoveOwn: boolean }) {
   const preset = el.frameColor.toLowerCase() === '#ffffff' ? 'white' : el.frameColor.toLowerCase() === '#000000' ? 'black' : 'custom';
   return (
     <>
+      <Field label="Zoom">
+        <Slider
+          label="Zoom" value={el.crop.zoom} min={1} max={MAX_ZOOM} step={0.05} format={(v) => `${v.toFixed(2)}x`} 
+          onChange={(v) => {
+            if (!photo) return;
+            const innerW = el.w - 2 * el.frame;
+            const innerH = (el.h * 1) - 2 * el.frame * pageRatio - el.frameBottom * pageRatio;
+            patch({ crop: zoomAt(photo, el.crop, (innerW * pageRatio) / Math.max(1e-9, innerH), v) }, K(el.id, 'zoom'));
+          }}
+        />
+      </Field>
       <Field label="Frame width">
         <Slider label="Frame width" value={el.frame} min={0} max={0.08} step={0.001} format={pct()} onChange={(v) => patch({ frame: v }, K(el.id, 'frame'))} />
       </Field>
@@ -54,7 +66,7 @@ function PhotoInspector({ el, patch, onReplace, onRemove, onMoveOwn, canMoveOwn 
           Move to its own page
         </Button>
       </div>
-      <p className="hint">Double-click the photo to pan and zoom inside its frame.</p>
+      <p className="hint">Drag to reposition the photo. Double-click to move or resize the frame.</p>
     </>
   );
 }
@@ -136,9 +148,11 @@ type Props = {
   onDuplicate: () => void;
   onMoveOwn: () => void;
   canMoveOwn: boolean;
+  getPhoto: (id: string | null) => Photo | undefined;
+  pageRatio: number;
 };
 
-export function ElementInspector({ els, patch, onReplace, onRemove, onDuplicate, onMoveOwn, canMoveOwn }: Props) {
+export function ElementInspector({ els, patch, onReplace, onRemove, onDuplicate, onMoveOwn, canMoveOwn, getPhoto, pageRatio }: Props) {
   if (els.length === 0) return null;
   if (els.length > 1) {
     return (
@@ -159,7 +173,7 @@ export function ElementInspector({ els, patch, onReplace, onRemove, onDuplicate,
         <h2 className="section-title">{el.kind === 'photo' ? 'Photo' : el.kind === 'text' ? 'Text' : 'Shape'}</h2>
         <button type="button" className="link" onClick={onDuplicate}>Duplicate</button>
       </div>
-      {el.kind === 'photo' ? <PhotoInspector {...common} el={el} onReplace={onReplace} onRemove={onRemove} onMoveOwn={onMoveOwn} canMoveOwn={canMoveOwn} /> : el.kind === 'text' ? <TextInspector {...common} el={el} /> : <RectInspector {...common} el={el} />}
+      {el.kind === 'photo' ? <PhotoInspector {...common} el={el} onReplace={onReplace} onRemove={onRemove} onMoveOwn={onMoveOwn} canMoveOwn={canMoveOwn} photo={getPhoto(el.photoId)} pageRatio={pageRatio} /> : el.kind === 'text' ? <TextInspector {...common} el={el} /> : <RectInspector {...common} el={el} />}
       {el.kind !== 'photo' && (
         <div className="btn-row"><Button onClick={onRemove}>Remove</Button></div>
       )}

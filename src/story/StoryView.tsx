@@ -14,7 +14,7 @@ import { ElementInspector } from './ElementInspector';
 import { ExportStatus, ImagesDialog, VideoDialog } from './ExportDialogs';
 import { LayoutControl } from './LayoutControl';
 import { PageStrip } from './PageStrip';
-import { photoIdsInUse, removePhotos, updatePage, type El, type Story } from './model';
+import { aspectRatio, findPhoto, photoIdsInUse, removePhotos, updatePage, type El, type Story } from './model';
 import { StoryEmpty, type MakeOpts } from './StoryEmpty';
 import { StoryInspector } from './StoryInspector';
 import { StoryStage, type DropHit } from './StoryStage';
@@ -199,7 +199,7 @@ export function StoryView() {
               <ElementInspector
                 els={selectedEls} patch={(p, key) => ed.patchSelected(p, key)}
                 onReplace={() => void replacePhoto()} onRemove={ed.remove} onDuplicate={ed.duplicate}
-                onMoveOwn={() => moveOwn()} canMoveOwn={canMoveSel}
+                onMoveOwn={() => moveOwn()} canMoveOwn={canMoveSel} getPhoto={(id) => findPhoto(story, id)} pageRatio={aspectRatio(story.aspect)}
               />
             </StoryInspector>
           </aside>

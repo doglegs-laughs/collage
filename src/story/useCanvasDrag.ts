@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, type RefObject } from 'react';
-import { clampCrop } from '../core/geometry';
+import { clampCrop, cropBox, panBy } from '../core/geometry';
 import type { El, Photo } from './model';
 import { layoutElementPx } from './render';
 import { boxXs, boxYs, NO_GUIDES, normalizeAngle, resizeBox, snapAxis, snapTargets, unionBox, type Guides, type Handle } from './snap';
@@ -32,10 +32,11 @@ type Compute = (dx: number, dy: number, ev: PointerEvent) => { patches: Override
 export function useCanvasDrag(inputs: Inputs) {
   const [overrides, setOverrides] = useState<Overrides>({});
   const [guides, setGuides] = useState<Guides>(NO_GUIDES);
+  const [panning, setPanning] = useState(false);
   const live = useRef(inputs);
   live.current = inputs;
 
-  const run = useCallback((e: { clientX: number; clientY: number }, compute: Compute, handled?: (up: PointerEvent) => boolean) => {
+  const run = useCallback((e: { clientX: number; clientY: number }, compute: Compute, handled?: (up: PointerEvent) => boolean, finished?: () => void) => {
     const sx = e.clientX;
     const sy = e.clientY;
     let moved = false;
@@ -56,6 +57,7 @@ export function useCanvasDrag(inputs: Inputs) {
       window.removeEventListener('pointercancel', onUp);
       setOverrides({});
       setGuides(NO_GUIDES);
+      finished?.();
       if (moved && !(up.type === 'pointerup' && handled?.(up))) live.current.commit(last);
     };
     window.addEventListener('pointermove', onMove);
@@ -85,6 +87,25 @@ export function useCanvasDrag(inputs: Inputs) {
       for (const el of sel) patches[el.id] = { x: el.x + mx / W, y: el.y + my / H };
       return { patches, guides };
     }, (up) => live.current.dropOut?.(up, ids) ?? false);
+  }, [run]);
+
+  /** Pan the photo inside its frame (no whitespace is ever revealed). The frame stays put; one gesture is one commit. */
+  const startPan = useCallback((e: { clientX: number; clientY: number }, id: string) => {
+    const { elements, W, H, getPhoto } = live.current;
+    const el = elements.find((x) => x.id === id);
+    if (!el || el.kind !== 'photo') return;
+    const photo = getPhoto(el.photoId);
+    const { inner } = layoutElementPx(el, W, H);
+    if (!photo || inner.w <= 0 || inner.h <= 0) return;
+    const aspect = inner.w / inner.h;
+    const box = cropBox(photo, el.crop, aspect);
+    const rad = (-el.rotation * Math.PI) / 180;
+    setPanning(true);
+    run(e, (dx, dy) => {
+      const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+      const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+      return { patches: { [id]: { crop: panBy(photo, el.crop, aspect, (-lx * box.w) / inner.w, (-ly * box.h) / inner.h) } as Partial<El> } };
+    }, undefined, () => setPanning(false));
   }, [run]);
 
   const startResize = useCallback((e: { clientX: number; clientY: number }, id: string, handle: Handle) => {
@@ -143,5 +164,5 @@ export function useCanvasDrag(inputs: Inputs) {
     });
   }, [run]);
 
-  return { overrides, guides, startMove, startResize, startRotate };
+  return { overrides, guides, panning, startMove, startPan, startResize, startRotate };
 }

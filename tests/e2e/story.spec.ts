@@ -161,6 +161,7 @@ test('move, nudge, text edit and page management', async () => {
   await page.keyboard.press('Shift+ArrowRight');
   const box2 = await el.boundingBox();
   expect(box2!.x).toBeGreaterThan(box1!.x + 3);
+  await el.dblclick(); // move-frame mode: a plain drag now moves the frame
   await page.mouse.move(box2!.x + box2!.width / 2, box2!.y + box2!.height / 2);
   await page.mouse.down();
   await page.mouse.move(box2!.x + box2!.width / 2 + 40, box2!.y + box2!.height / 2 + 20, { steps: 6 });
@@ -182,7 +183,7 @@ test('move, nudge, text edit and page management', async () => {
   expect(after!.width).toBeLessThan(before!.width - 5);
   await expect(sel.locator('[data-handle="rotate"]')).toHaveCount(1);
 
-  // Crop mode: double-click, Escape exits.
+  // Double-click enters "move frame" mode; Escape exits.
   await page.locator('.story-page [data-testid="story-el-photo"] .se-photo').first().dblclick();
   await expect(page.locator('.crop-hint')).toBeVisible();
   await page.keyboard.press('Escape');
@@ -358,6 +359,7 @@ test('move a photo to its own page: inspector, undo, context menu, shortcut', as
   await expect.poll(stripCount).toBe(total);
   await page.getByTestId('strip-page').nth(multi).click();
   await expect(page.getByTestId('page-label')).toContainText(`Page ${multi + 1} of`);
+  await photoEls.first().locator('.se-photo').dblclick(); // frame-move mode
   const from = await photoEls.first().locator('.se-photo').boundingBox();
   const to = await page.getByTestId('strip-new-page').boundingBox();
   await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
@@ -368,4 +370,62 @@ test('move a photo to its own page: inspector, undo, context menu, shortcut', as
   await expect.poll(stripCount).toBe(total + 1);
   await expect(page.getByTestId('page-label')).toContainText(`Page ${total + 1} of ${total + 1}`);
   await expect(photoEls).toHaveCount(1);
+});
+
+test('drag pans the photo in its frame; double-click moves the frame', async () => {
+  test.setTimeout(120_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  await stubDialogs({ photos, folder, video: path.join(folder, 'x.mp4') });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(page.getByTestId('view-story').locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  await page.getByTestId('make-story').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  await imagesLoaded().catch(() => {});
+
+  const el = page.locator('.story-page [data-testid="story-el-photo"]:not([data-ghost])').first();
+  const body = el.locator('.se-photo');
+  const sel = page.getByTestId('selection-box');
+  const crop = async () => (await el.getAttribute('data-crop'))!.split(',').map(Number);
+  const frame = async () => { const b = (await sel.boundingBox())!; return [Math.round(b.x), Math.round(b.y)]; };
+  const drag = async (dx: number, dy: number) => {
+    const b = (await body.boundingBox())!;
+    const x = b.x + b.width / 2;
+    const y = b.y + b.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx / 2, y + dy / 2, { steps: 4 });
+    await page.mouse.move(x + dx, y + dy, { steps: 4 });
+    await page.mouse.up();
+  };
+  const zoom = page.getByRole('slider', { name: 'Zoom' });
+
+  // Zoom in with the wheel over the selected photo, then pan: crop changes, the frame does not.
+  await body.click();
+  await expect(sel).toHaveCount(1);
+  const f0 = await frame();
+  const b0 = (await body.boundingBox())!;
+  await page.mouse.move(b0.x + b0.width / 2, b0.y + b0.height / 2);
+  await page.mouse.wheel(0, -600);
+  await expect.poll(async () => (await crop())[0]).toBeGreaterThan(1.2);
+  expect(Number(await zoom.inputValue())).toBeGreaterThan(1.2);
+  const c0 = await crop();
+  await drag(-40, -30);
+  await expect.poll(async () => (await crop()).join()).not.toBe(c0.join());
+  expect(await frame()).toEqual(f0);
+
+  // One pan = one undo step.
+  const c1 = await crop();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(async () => (await crop()).join()).toBe(c0.join());
+  expect(c1.join()).not.toBe(c0.join());
+
+  // Double-click: now a drag moves the frame and leaves the crop alone.
+  await body.dblclick();
+  await expect(page.locator('.crop-hint')).toBeVisible();
+  const c2 = await crop();
+  await drag(30, 25);
+  await expect.poll(async () => (await frame()).join()).not.toBe(f0.join());
+  expect((await crop()).join()).toBe(c2.join());
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.crop-hint')).toHaveCount(0);
 });

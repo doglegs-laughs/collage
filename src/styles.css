@@ -345,3 +345,5 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 .strip-gap > span:hover { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent-2); }
 .strip-new { flex: none; align-self: stretch; width: 74px; display: grid; place-items: center; text-align: center; font-size: 12px; font-weight: 600; color: var(--muted, #64748b); border: 2px dashed var(--line); border-radius: 8px; padding: 4px; }
 .strip-new:hover { border-color: var(--accent-2); background: var(--accent-soft); color: var(--accent-text); }
+.story-page .se-photo { cursor: grab; }
+.story-page.panning .se-photo { cursor: grabbing; }
