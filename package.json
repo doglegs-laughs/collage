@@ -14,7 +14,8 @@
     "e2e": "npm run build && playwright test",
     "start": "npm run build && electron .",
     "fetch-ffmpeg": "node scripts/fetch-ffmpeg.mjs",
-    "dist:mac": "bash scripts/package-mac.sh"
+    "dist:mac": "bash scripts/package-mac.sh",
+    "screenshots": "node scripts/screenshots.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
