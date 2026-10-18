@@ -57,6 +57,8 @@ export interface Api {
   autosaveClear(): Promise<void>;
   /** The main process asks for an immediate autosave before closing; resolve true when it is written. */
   onAutosaveFlush(cb: () => Promise<boolean>): () => void;
+  /** Edit > Undo / Redo (the menu owns the shortcuts, so the renderer never sees the key). */
+  onMenuCommand(cb: (command: 'undo' | 'redo') => void): () => void;
 }
 
 export interface RecentStory { path: string; name: string; exists: boolean }
@@ -132,6 +134,7 @@ const browserApi: Api = {
   },
   async autosaveClear() { try { localStorage.removeItem(AUTOSAVE_KEY); } catch { /* ignore */ } },
   onAutosaveFlush: () => () => {},
+  onMenuCommand: () => () => {},
   async openProject() {
     const [file] = await pickFiles('.collage,.json,application/json', false);
     return file ? { path: file.name, json: await file.text() } : null;

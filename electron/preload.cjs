@@ -32,6 +32,13 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('autosave:flush', handler);
     return () => ipcRenderer.removeListener('autosave:flush', handler);
   },
+  onMenuCommand: (cb) => {
+    const undo = () => cb('undo');
+    const redo = () => cb('redo');
+    ipcRenderer.on('menu:undo', undo);
+    ipcRenderer.on('menu:redo', redo);
+    return () => { ipcRenderer.removeListener('menu:undo', undo); ipcRenderer.removeListener('menu:redo', redo); };
+  },
   makeVideo: (job) => invoke('video:make', job),
   onVideoProgress: (cb) => {
     const handler = (_event, fraction) => cb(fraction);
