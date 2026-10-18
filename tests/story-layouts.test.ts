@@ -24,7 +24,7 @@ const photoSet = (s: Story) => new Set(s.pages.flatMap((p) => photoIdsOf(p.eleme
 describe('layoutOptions', () => {
   it('puts Full screen photo first for a single photo, plus several more', () => {
     const s = storyWith('single-border', [L('a')]);
-    const o = layoutOptions(s, 0);
+    const o = layoutOptions(s, 0).filter((x) => !x.id.startsWith('cover'));
     expect(o[0]).toMatchObject({ id: 'single-bleed', name: 'Full screen photo', slots: 1, pages: 1 });
     expect(o.filter((x) => !x.slotsDiffer).length).toBeGreaterThanOrEqual(4);
     expect(o.filter((x) => x.current).map((x) => x.id)).toEqual(['single-border']);

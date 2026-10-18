@@ -65,7 +65,7 @@ describe('makeStory', () => {
   it('clean: cover with title, panorama for wide photos, overview grid near the end', () => {
     const wide = makePhotos(1, 1, [[6000, 2400]]);
     const rest = makePhotos(9, 4, [[3000, 4000], [4000, 3000]]).map((p, i) => ({ ...p, id: `r${i}` }));
-    const photos = [rest[0], ...wide.map((p) => ({ ...p, id: 'wide' })), ...rest.slice(1)];
+    const photos = [{ ...makePhotos(1, 1, [[3000, 4000]])[0], id: 'first' }, ...wide.map((p) => ({ ...p, id: 'wide' })), ...rest.slice(1)];
     const pages = makeStory(photos, { style: 'clean', aspect: '4:5', seed: 3, title: 'Faroe' });
     expect(pages[0].templateId).toBe('cover');
     expect(pages.at(-1)!.templateId).toBe('overview-grid');

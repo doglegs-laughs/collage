@@ -53,7 +53,7 @@ export function makeStory(photos: Photo[], o: AutofillOpts): Page[] {
       emit(T('polaroid-on-photo'), photos.slice(0, 2), { caption: title });
       i = 2;
     } else {
-      emit(T(o.style === 'stylized' ? 'cover-sans' : 'cover'), [photos[0]], { title, subtitle });
+      emit(T(o.style === 'stylized' ? 'cover-sans' : orientationOf(photos[0]) === 'l' ? 'cover-border' : 'cover'), [photos[0]], { title, subtitle });
       i = 1;
     }
   }
@@ -119,7 +119,7 @@ export function shuffleLayout(story: Story, pageIndex: number, seed: number): St
   const orient = photos.map(orientationOf);
   const options = (getAll: Template[]) =>
     getAll.filter((t) => t.pageCount === 1 && t.slots === photos.length && t.id !== page.templateId && (title || !t.id.startsWith('cover')));
-  const all = options(templatesForStyle('clean').concat(templatesForStyle('stylized'), ['cover', 'cover-sans', 'single-bleed', 'magazine', 'pair-stacked', 'trio', 'triptych', 'grid-2x2', 'grid-3x3', 'polaroid-scatter-2', 'film-strip', 'film-strip-4'].map((id) => getTemplate(id)!)));
+  const all = options(templatesForStyle('clean').concat(templatesForStyle('stylized'), ['cover', 'cover-sans', 'cover-border', 'cover-border-below', 'cover-mat', 'single-bleed', 'magazine', 'pair-stacked', 'trio', 'triptych', 'grid-2x2', 'grid-3x3', 'polaroid-scatter-2', 'film-strip', 'film-strip-4'].map((id) => getTemplate(id)!)));
   const unique = [...new Map(all.map((t) => [t.id, t])).values()];
   let best: Template | null = null;
   let bestScore = -1;

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { FONT_KEYS, FONT_LABELS, FONT_STACKS } from '../../src/story/fonts';
 
 const require = createRequire(import.meta.url);
 const electronPath = require('electron') as string;
@@ -612,4 +613,91 @@ test('Open Recent lists saved stories and marks missing files', async () => {
   await expect(page.getByTestId('recent-stories')).toContainText('Not found');
   await page.getByTestId('recent-stories').getByRole('button', { name: 'Remove' }).click();
   await expect(page.getByTestId('recent-story')).toHaveCount(0);
+});
+
+test('fonts: Italiana loads, inspector font change re-renders thumbnails, story title font, visual checks', async () => {
+  test.setTimeout(240_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  await stubDialogs({ photos, folder, video: path.join(folder, 'x.mp4') });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(page.getByTestId('view-story').locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  // One portrait photo (photo2 is 3000x4000) and a title give the Faroes cover.
+  const pick = page.getByTestId('view-story').locator('.tray-pick').nth(1);
+  await page.getByTestId('view-story').getByRole('button', { name: 'None', exact: true }).click();
+  await pick.click({ timeout: 90_000 });
+  await page.getByTestId('story-title').fill('The Faroes');
+  await page.getByTestId('story-subtitle').fill('June 2025');
+  await page.getByRole('button', { name: 'Clean', exact: true }).click();
+  await page.getByTestId('make-story').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  await imagesLoaded().catch(() => {});
+
+  const titleEl = page.locator('.story-page [data-testid="story-el-text"] .se-text').first();
+  await expect(titleEl).toHaveCSS('font-family', /Italiana/);
+  await expect.poll(() => page.evaluate(() => document.fonts.check('400 32px "Italiana"')), { timeout: 15_000 }).toBe(true);
+  const thumb = () => page.getByTestId('strip-page').first().locator('img').getAttribute('src');
+  await expect.poll(thumb, { timeout: 15_000 }).toBeTruthy();
+  const before = await thumb();
+  await imagesLoaded().catch(() => {});
+  await page.waitForTimeout(400);
+  await page.locator('.story-stage').screenshot({ path: path.join(shots, 'fonts-cover.png') });
+
+  // Change the font through the inspector: the thumbnail (canvas) pixels change.
+  await titleEl.click();
+  const fontSel = page.getByLabel('Font', { exact: true });
+  await expect(fontSel).toHaveValue('italiana');
+  await fontSel.selectOption('bebas');
+  await expect(titleEl).toHaveCSS('font-family', /Bebas Neue/);
+  await expect.poll(async () => (await thumb()) !== before, { timeout: 15_000 }).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.fonts.check('400 32px "Bebas Neue"'))).toBe(true);
+  // Weight choices follow the family (Bebas Neue has one).
+  await expect(page.getByRole('radio', { name: /Regular/ }).or(page.getByRole('button', { name: 'Regular' })).first()).toBeVisible();
+
+  // Story section: title font applies to every title element in a single undo step.
+  await page.getByLabel('Title font', { exact: true }).selectOption('playfair');
+  await expect(titleEl).toHaveCSS('font-family', /Playfair Display/);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(titleEl).toHaveCSS('font-family', /Bebas Neue/);
+  await page.getByLabel('Title font', { exact: true }).selectOption('italiana');
+  await page.getByLabel('Subtitle font', { exact: true }).selectOption('josefin');
+  await expect(titleEl).toHaveCSS('font-family', /Italiana/);
+
+  // Cover variants and black-bordered stacks, each shot then tiled into covers.png.
+  const tiles: string[] = [];
+  const shootLayout = async (id: string) => {
+    await page.getByTestId('layout-button').click();
+    await page.getByTestId('layout-popover').locator(`[data-option-id="${id}"]`).click();
+    await page.keyboard.press('Escape').catch(() => {});
+    await imagesLoaded().catch(() => {});
+    await page.waitForTimeout(500);
+    const f = path.join(shots, `covers-${id}.png`);
+    await page.locator('.story-page').first().screenshot({ path: f });
+    tiles.push(f);
+  };
+  await shootLayout('cover');
+  await shootLayout('cover-border');
+  await shootLayout('cover-border-below');
+  await shootLayout('cover-mat');
+  const inputs = tiles.flatMap((f) => ['-i', f]);
+  const filter = tiles.map((_, i) => `[${i}:v]scale=-2:640[v${i}]`).join(';') + ';' + tiles.map((_, i) => `[v${i}]`).join('') + `hstack=inputs=${tiles.length}`;
+  execFileSync(ffmpeg, ['-y', '-loglevel', 'error', ...inputs, '-filter_complex', filter, path.join(shots, 'covers.png')]);
+
+  // Font sampler: every font name drawn in its own face.
+  const faces = FONT_KEYS.map((k) => ({ label: FONT_LABELS[k], family: FONT_STACKS[k] }));
+  await page.evaluate(async (opts) => {
+    const box = document.createElement('div');
+    box.id = 'font-sampler';
+    box.style.cssText = 'position:fixed;left:20px;top:20px;width:760px;padding:24px;background:#fff;color:#111;z-index:99999;border:1px solid #ccc';
+    for (const o of opts) {
+      const row = document.createElement('div');
+      row.textContent = `${o.label} — THE FAROES 0123`;
+      row.style.cssText = `font-family:${o.family};font-size:30px;line-height:1.5;font-weight:400;letter-spacing:0.04em`;
+      box.appendChild(row);
+    }
+    document.body.appendChild(box);
+    await Promise.all(opts.map((o) => document.fonts.load(`400 30px ${o.family}`, 'THE FAROES')));
+  }, faces);
+  await page.waitForTimeout(500);
+  await page.locator('#font-sampler').screenshot({ path: path.join(shots, 'fonts-sampler.png') });
+  await page.evaluate(() => document.getElementById('font-sampler')?.remove());
 });

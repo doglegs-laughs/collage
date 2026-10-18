@@ -11,8 +11,8 @@ export type MoveOpts = {
   insertAt?: number;
 };
 
-/** "stack-3-tight" and "stack-2-tight" are one family, as are "grid-2x2" and "grid-3x3". */
-const familyOf = (id: string | null): string => (id ?? '').replace(/-\d+(x\d+)?(?=-tight$|$)/, '');
+/** "stack-3-tight" and "stack-2-tight" (likewise the -black ones) are one family, as are "grid-2x2" and "grid-3x3". */
+const familyOf = (id: string | null): string => (id ?? '').replace(/-\d+(x\d+)?(?=-(?:tight|black)$|$)/, '');
 
 /** The style's default layout for one photo on its own page. */
 export function singleTemplateFor(style: Story['style'], photo: Photo | undefined): string {
