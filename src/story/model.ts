@@ -28,6 +28,8 @@ export type PhotoEl = ElementBase & {
 export type TextEl = ElementBase & {
   kind: 'text';
   text: string;
+  /** Marks the story title / subtitle text so editing the Story fields can find it. */
+  role?: 'title' | 'subtitle';
   font: FontKey;
   /** Font size as a fraction of page HEIGHT. */
   size: number;
@@ -67,6 +69,7 @@ export type VideoSettings = { transition: 'none' | 'crossfade'; transitionSecond
 export type Story = {
   version: 1;
   title: string;
+  subtitle?: string;
   aspect: Aspect;
   style: StyleId;
   background: string;
@@ -430,11 +433,23 @@ export function deserializeStory(json: string): Story {
     const spread = isObj(p.spread) ? { index: num(p.spread.index, 'spread'), count: num(p.spread.count, 'spread') } : undefined;
     return { id: str(p.id, 'page id'), templateId: typeof p.templateId === 'string' ? p.templateId : null, background: typeof p.background === 'string' ? p.background : '#ffffff', duration: typeof p.duration === 'number' && Number.isFinite(p.duration) ? Math.min(60, Math.max(0.5, p.duration)) : 3, elements: p.elements.map(readElement), ...(spread ? { spread } : {}), ...(p.hidden === true ? { hidden: true } : {}) };
   });
+  const title = typeof raw.title === 'string' ? raw.title : '';
+  const subtitle = typeof raw.subtitle === 'string' ? raw.subtitle : '';
+  const flat = (t: string) => t.replace(/\s+/g, ' ').trim().toLowerCase();
+  for (const p of pages) {
+    p.elements = p.elements.map((e) => {
+      if (e.kind !== 'text' || e.role) return e;
+      if (flat(title) && flat(e.text) === flat(title)) return { ...e, role: 'title' as const };
+      if (flat(subtitle) && flat(e.text) === flat(subtitle)) return { ...e, role: 'subtitle' as const };
+      return e;
+    });
+  }
   const v = isObj(raw.video) ? raw.video : {};
   const style = STYLE_IDS.includes(raw.style as StyleId) ? (raw.style as StyleId) : 'clean';
   return {
     version: 1,
-    title: typeof raw.title === 'string' ? raw.title : '',
+    title,
+    ...(subtitle ? { subtitle } : {}),
     aspect,
     style,
     background: typeof raw.background === 'string' ? raw.background : '#ffffff',

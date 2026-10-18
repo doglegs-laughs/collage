@@ -478,3 +478,33 @@ test('hide a page: dimmed in the strip, skipped by export, undo/redo', async () 
   await page.getByRole('menuitem', { name: 'Show page' }).click();
   await expect(item).toHaveAttribute('data-hidden', 'false');
 });
+
+test('add a title page or put the title on a page after making a story without one', async () => {
+  test.setTimeout(180_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  await stubDialogs({ photos, folder, video: path.join(folder, 'x.mp4') });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(page.getByTestId('view-story').locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  await page.getByTestId('make-story').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  const n = await stripCount();
+  const stageText = page.locator('.story-stage [data-testid="story-el-text"]');
+  await expect(stageText).toHaveCount(0);
+
+  await page.getByLabel('Story title').fill('Midsummer');
+  await page.getByRole('button', { name: 'Add title page' }).first().click();
+  expect(await stripCount()).toBe(n + 1);
+  await expect(page.getByTestId('page-label')).toContainText('Page 1 of');
+  await expect(stageText.first()).toContainText(/midsummer/i);
+  await expect(page.getByTestId('title-missing')).toHaveCount(0);
+
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await stripCount()).toBe(n);
+  await expect(stageText).toHaveCount(0);
+  await expect(page.getByTestId('title-missing')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add to this page' }).first().click();
+  expect(await stripCount()).toBe(n);
+  await expect(stageText.first()).toContainText(/midsummer/i);
+  await expect(page.getByTestId('selection-box')).toHaveCount(1);
+});

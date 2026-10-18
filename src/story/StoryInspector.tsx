@@ -4,6 +4,7 @@ import type { Photo } from '../core/images';
 import { Check, ColorInput, Field } from './fields';
 import { LayoutPicker } from './LayoutPicker';
 import type { LayoutOption } from './layouts';
+import { hasTitleEl } from './storyOps';
 import { ASPECTS, hiddenCount, type Aspect, type Page, type StyleId, type Story } from './model';
 
 type Change = { style?: StyleId; aspect?: Aspect };
@@ -22,6 +23,8 @@ type Props = {
   onAddText: () => void;
   onAddSlot: () => void;
   onAddRect: () => void;
+  onAddTitlePage: () => void;
+  onAddTitleHere: () => void;
   /** Rendered between the Page and Story sections (the selected element's controls). */
   children?: ReactNode;
 };
@@ -30,6 +33,9 @@ type Props = {
 export function StoryInspector(p: Props) {
   const { story, page } = p;
   const [pending, setPending] = useState<Change | null>(null);
+  const [titleChoices, setTitleChoices] = useState(false);
+  const hasTitle = hasTitleEl(story);
+  const canAddTitle = !!story.title.trim();
   const request = (c: Change) => {
     if ((c.style ?? story.style) === story.style && (c.aspect ?? story.aspect) === story.aspect) return;
     setPending(c);
@@ -53,13 +59,32 @@ export function StoryInspector(p: Props) {
           <Button variant="soft" onClick={p.onAddText}>Add text</Button>
           <Button variant="soft" onClick={p.onAddSlot}>Add photo slot</Button>
           <Button variant="soft" onClick={p.onAddRect}>Add shape</Button>
+          <Button variant="soft" data-testid="page-add-title" onClick={() => (hasTitle && canAddTitle ? p.onAddTitleHere() : setTitleChoices((v) => !v))}>Add title</Button>
         </div>
+        {titleChoices && (
+          <div className="confirm" role="group" aria-label="Add title">
+            {canAddTitle ? (
+              <div className="btn-row">
+                <Button variant="primary" onClick={() => { p.onAddTitlePage(); setTitleChoices(false); }}>Add title page</Button>
+                <Button onClick={() => { p.onAddTitleHere(); setTitleChoices(false); }}>Add to this page</Button>
+              </div>
+            ) : (
+              <p>Type a title in the Story section first.</p>
+            )}
+          </div>
+        )}
       </section>
       {p.children}
       <section className="section" data-testid="inspector-story">
         <div className="section-head"><h2 className="section-title">Story</h2></div>
         <Field label="Title">
           <input className="text-input" aria-label="Story title" value={story.title} onChange={(e) => p.onTitle(e.target.value)} placeholder="Optional" />
+          {!hasTitle && canAddTitle && (
+            <div className="btn-row" data-testid="title-missing">
+              <Button variant="primary" onClick={p.onAddTitlePage}>Add title page</Button>
+              <Button onClick={p.onAddTitleHere}>Add to this page</Button>
+            </div>
+          )}
         </Field>
         <Field label="Subtitle">
           <input className="text-input" aria-label="Story subtitle" value={p.subtitle} onChange={(e) => p.onSubtitle(e.target.value)} placeholder="Optional" />

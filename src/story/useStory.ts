@@ -3,7 +3,7 @@ import { useHistory, type History } from '../core/history';
 import type { Photo } from '../core/images';
 import { makeStory } from './autofill';
 import { DEFAULT_VIDEO, emptyStory, type Aspect, type StyleId, type Story } from './model';
-import { newSeed, replaceCoverText } from './storyOps';
+import { newSeed, setRoleText } from './storyOps';
 
 export type GenerateOpts = { style?: StyleId; aspect?: Aspect; title?: string; subtitle?: string; seed?: number };
 export type StoryState = {
@@ -33,10 +33,8 @@ export function useStory(): StoryState {
   const story = history.state;
   const live = useRef(story);
   live.current = story;
-  const [subtitle, setSubtitleState] = useState('');
+  const subtitle = story.subtitle ?? '';
   const [seed, setSeed] = useState(newSeed);
-  const sub = useRef(subtitle);
-  sub.current = subtitle;
   const seedRef = useRef(seed);
   seedRef.current = seed;
   const { set } = history;
@@ -48,15 +46,12 @@ export function useStory(): StoryState {
     const style = o.style ?? s.style;
     const aspect = o.aspect ?? s.aspect;
     const title = o.title ?? s.title;
-    const subtitleText = o.subtitle ?? sub.current;
+    const subtitleText = o.subtitle ?? s.subtitle ?? '';
     const nextSeed = o.seed ?? newSeed();
-    if (o.subtitle !== undefined) {
-      sub.current = o.subtitle;
-      setSubtitleState(o.subtitle);
-    }
     const pages = makeStory(photos, { style, aspect, title, subtitle: subtitleText, seed: nextSeed });
     setSeed(nextSeed);
-    const next = { ...s, style, aspect, title, pages, photos };
+    const next: Story = { ...s, style, aspect, title, pages, photos, ...(subtitleText ? { subtitle: subtitleText } : {}) };
+    if (!subtitleText) delete next.subtitle;
     set(next);
     // Laying out a story from nothing is not unsaved work yet; anything after it is.
     if (!s.pages.length) setBaseline(next);
@@ -66,16 +61,12 @@ export function useStory(): StoryState {
   const mutate = useCallback((fn: (s: Story) => Story, key?: string) => set(fn, key), [set]);
 
   const setTitle = useCallback((title: string) => {
-    set((s) => ({ ...replaceCoverText(s, s.title, title), title }), 'story-title');
+    set((s) => ({ ...setRoleText(s, 'title', title), title }), 'story-title');
   }, [set]);
   const setSubtitle = useCallback((text: string) => {
-    const old = sub.current;
-    sub.current = text;
-    set((s) => replaceCoverText(s, old, text), 'story-subtitle');
-    setSubtitleState(text);
+    set((s) => ({ ...setRoleText(s, 'subtitle', text), subtitle: text }), 'story-subtitle');
   }, [set]);
   const load = useCallback((next: Story) => {
-    setSubtitleState('');
     history.reset(next);
     setBaseline(next);
   }, [history]);

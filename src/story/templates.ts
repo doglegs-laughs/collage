@@ -92,8 +92,9 @@ type Built = { pages: El[][]; bg?: string };
 
 const ADVANCE: Record<TextEl['font'], number> = { display: 0.58, displaySans: 0.56, serif: 0.55, sans: 0.54, mono: 0.6 };
 
+type TitleStyle = { font: TextEl['font']; weight: TextEl['weight']; color: string; ls: number; upper: boolean; shadow: boolean };
 /** Large title sized so the longest line spans ~80% of the page width, clamped to 5%..13% of page height. */
-function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: number, o: { font: TextEl['font']; weight: TextEl['weight']; color: string; ls: number; upper: boolean; shadow: boolean }): TextEl[] {
+function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: number, o: TitleStyle): TextEl[] {
   const adv = ADVANCE[o.font] * (o.upper ? 1 : 0.8) + o.ls;
   const minFu = 0.05 * c.H;
   const maxFu = 0.13 * c.H;
@@ -102,12 +103,26 @@ function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: numb
   const lines = single >= minFu || flat.includes('\n') === false && !/\s/.test(flat) ? [flat] : breakLines(title, Math.max(4, Math.floor(0.8 / (minFu * adv))));
   const longest = Math.max(1, ...lines.map((l) => l.length));
   const fu = clampN(0.8 / (longest * adv), minFu, maxFu);
-  const out = [textEl(c, { x: 0.05, y, w: 0.9, h: lines.length * fu * 1.25 }, fu, { text: lines.join('\n'), font: o.font, weight: o.weight, color: o.color, letterSpacing: o.ls, uppercase: o.upper, shadow: o.shadow, align: 'center' })];
+  const out = [textEl(c, { x: 0.05, y, w: 0.9, h: lines.length * fu * 1.25 }, fu, { text: lines.join('\n'), role: 'title', font: o.font, weight: o.weight, color: o.color, letterSpacing: o.ls, uppercase: o.upper, shadow: o.shadow, align: 'center' })];
   if (subtitle) {
     const sfu = 0.022 * c.H;
-    out.push(textEl(c, { x: 0.05, y: y + lines.length * fu * 1.25 + sfu * 0.5, w: 0.9, h: sfu * 1.4 }, sfu, { text: subtitle, font: 'displaySans', weight: 300, color: o.color, letterSpacing: 0.3, uppercase: true, shadow: o.shadow, align: 'center' }));
+    out.push(textEl(c, { x: 0.05, y: y + lines.length * fu * 1.25 + sfu * 0.5, w: 0.9, h: sfu * 1.4 }, sfu, { text: subtitle, role: 'subtitle', font: 'displaySans', weight: 300, color: o.color, letterSpacing: 0.3, uppercase: true, shadow: o.shadow, align: 'center' }));
   }
   return out;
+}
+
+/**
+ * Title (and subtitle) text elements for any page, auto-sized like the cover template.
+ * `y` is the top as a fraction of page height (default 0.09). Elements carry roles 'title' / 'subtitle'.
+ */
+export function titleElements(aspect: Aspect, title: string, subtitle: string | undefined, o: { font?: TextEl['font']; color?: string; y?: number; shadow?: boolean } = {}): TextEl[] {
+  const A = aspectRatio(aspect);
+  const c: Ctx = { A, H: 1 / A, g: 0.025, m: 0.025, seed: 1, opts: {} };
+  const sans = o.font === 'displaySans';
+  const font = o.font ?? 'display';
+  const color = o.color ?? '#ffffff';
+  const els = titleBlock(c, title, subtitle?.trim() || undefined, (o.y ?? 0.09) * c.H, { font, weight: sans ? 300 : 400, color, ls: sans ? 0.25 : 0.18, upper: true, shadow: o.shadow ?? color.toLowerCase() === '#ffffff' });
+  return els.map((e, z) => ({ ...e, z }));
 }
 
 const buildCover = (sans: boolean) => (c: Ctx, [p]: Photo[]): Built => {
@@ -275,7 +290,7 @@ function buildPolaroidOnPhoto(c: Ctx, [bg, card]: Photo[]): Built {
     const ty = cy + dy * Math.cos(t);
     const tw = cw * 0.8;
     const th = band * 0.5;
-    els.push(textEl(c, { x: tx - tw / 2, y: ty - th / 2, w: tw, h: th }, band * 0.26, { text: c.opts.caption, font: 'mono', weight: 400, color: '#3a3733', rotation: rot, align: 'center' }));
+    els.push(textEl(c, { x: tx - tw / 2, y: ty - th / 2, w: tw, h: th }, band * 0.26, { text: c.opts.caption, role: 'title', font: 'mono', weight: 400, color: '#3a3733', rotation: rot, align: 'center' }));
   }
   return { pages: [els] };
 }
@@ -287,9 +302,9 @@ function buildMagazine(c: Ctx, [p]: Photo[]): Built {
     const lines = breakLines(c.opts.title, 12);
     const fu = Math.min(0.11, 0.8 / (Math.max(...lines.map((l) => l.length)) * 0.55));
     const th = lines.length * fu * 1.2;
-    els.push(textEl(c, { x: c.m + 0.04, y: c.m + ph - th - 0.03, w: Wav - 0.08, h: th }, fu, { text: lines.join('\n'), font: 'serif', weight: 600, color: '#ffffff', align: 'left', shadow: true }));
+    els.push(textEl(c, { x: c.m + 0.04, y: c.m + ph - th - 0.03, w: Wav - 0.08, h: th }, fu, { text: lines.join('\n'), role: 'title', font: 'serif', weight: 600, color: '#ffffff', align: 'left', shadow: true }));
   }
-  if (c.opts.subtitle) els.push(textEl(c, { x: c.m, y: c.m + ph + 0.015, w: Wav, h: 0.03 }, 0.018, { text: c.opts.subtitle, font: 'mono', color: '#444444', align: 'left' }));
+  if (c.opts.subtitle) els.push(textEl(c, { x: c.m, y: c.m + ph + 0.015, w: Wav, h: 0.03 }, 0.018, { text: c.opts.subtitle, role: 'subtitle', font: 'mono', color: '#444444', align: 'left' }));
   return { pages: [els] };
 }
 function buildPrintMat(c: Ctx, photos: Photo[]): Built {

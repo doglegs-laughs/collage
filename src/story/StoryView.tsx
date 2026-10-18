@@ -19,6 +19,7 @@ import { StoryEmpty, type MakeOpts } from './StoryEmpty';
 import { StoryInspector } from './StoryInspector';
 import { StoryStage, type DropHit } from './StoryStage';
 import { StoryTopbar } from './StoryTopbar';
+import { addTitlePage, addTitleToPage, newSeed } from './storyOps';
 import { useEditor } from './useEditor';
 import { useExporter } from './useExporter';
 import { usePageThumbs } from './usePageThumbs';
@@ -82,6 +83,16 @@ export function StoryView() {
     ed.goTo(0);
   };
 
+  const addTitlePageNow = () => {
+    st.mutate((s) => addTitlePage(s, newSeed()));
+    ed.goTo(0);
+  };
+  const addTitleHere = () => {
+    const r = addTitleToPage(st.live.current, pageIndex);
+    if (!r.titleId) return;
+    st.mutate(() => r.story);
+    ed.select([r.titleId]);
+  };
   const dropPhoto = (photoId: string, hit: DropHit) => {
     const photo = lib.get(photoId);
     if (photo) ed.dropPhoto(photo, hit);
@@ -205,7 +216,7 @@ export function StoryView() {
               story={story} subtitle={st.subtitle} page={page} pageIndex={pageIndex} extraPhotos={extraPhotos} onLayout={(o) => ed.pageLayout(o, extraPhotos)}
               onPage={(p, key) => st.mutate((s) => updatePage(s, pageIndex, p), key)}
               onTitle={st.setTitle} onSubtitle={st.setSubtitle} onRecreate={recreate}
-              onToggleHidden={() => ed.toggleHidden()} onAddText={ed.addText} onAddSlot={ed.addSlot} onAddRect={ed.addRect}
+              onToggleHidden={() => ed.toggleHidden()} onAddText={ed.addText} onAddSlot={ed.addSlot} onAddRect={ed.addRect} onAddTitlePage={addTitlePageNow} onAddTitleHere={addTitleHere}
             >
               <ElementInspector
                 els={selectedEls} patch={(p, key) => ed.patchSelected(p, key)}
