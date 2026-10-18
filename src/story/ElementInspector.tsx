@@ -2,8 +2,9 @@ import { DEFAULT_CROP, MAX_ZOOM, zoomAt } from '../core/geometry';
 import type { Photo } from '../core/images';
 import { Button, Segmented, Slider } from '../ui/Controls';
 import { Check, ColorInput, Field, deg, pct } from './fields';
-import { FONT_KEYS, FONT_LABELS } from './fonts';
-import type { El, FontKey, PhotoEl, RectEl, TextEl } from './model';
+import { FontSelect } from './FontSelect';
+import { fontWeights, snapWeight, WEIGHT_NAMES } from './fonts';
+import type { El, PhotoEl, RectEl, TextEl } from './model';
 
 type Common = { patch: (p: Partial<El>, key: string) => void; id: string };
 const K = (id: string, field: string) => `insp-${field}-${id}`;
@@ -78,9 +79,7 @@ function TextInspector({ el, patch }: Common & { el: TextEl }) {
         <textarea className="text-input" aria-label="Text content" rows={3} value={el.text} onChange={(e) => patch({ text: e.target.value }, K(el.id, 'text'))} />
       </Field>
       <Field label="Font">
-        <select className="select" aria-label="Font" value={el.font} onChange={(e) => patch({ font: e.target.value as FontKey }, K(el.id, 'font'))}>
-          {FONT_KEYS.map((k) => <option key={k} value={k}>{FONT_LABELS[k]}</option>)}
-        </select>
+        <FontSelect label="Font" value={el.font} onChange={(f) => patch({ font: f, weight: snapWeight(f, el.weight) }, K(el.id, 'font'))} />
       </Field>
       <Field label="Size">
         <Slider label="Size" value={el.size} min={0.01} max={0.25} step={0.001} format={pct()} onChange={(v) => patch({ size: v }, K(el.id, 'size'))} />
@@ -88,8 +87,8 @@ function TextInspector({ el, patch }: Common & { el: TextEl }) {
       <Field label="Weight">
         <Segmented
           label="Weight"
-          value={String(el.weight)}
-          options={[{ value: '300', label: 'Thin' }, { value: '400', label: 'Regular' }, { value: '600', label: 'Semi' }, { value: '800', label: 'Bold' }]}
+          value={String(snapWeight(el.font, el.weight))}
+          options={fontWeights(el.font).map((w) => ({ value: String(w), label: WEIGHT_NAMES[w] ?? String(w) }))}
           onChange={(v) => patch({ weight: Number(v) as TextEl['weight'] }, K(el.id, 'weight'))}
         />
       </Field>

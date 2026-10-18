@@ -1,6 +1,6 @@
 import { drawPhotoCropped } from '../core/canvas';
 import { cropBox } from '../core/geometry';
-import { fontShorthand, LINE_HEIGHT } from './fonts';
+import { ensureFonts, fontShorthand, LINE_HEIGHT } from './fonts';
 import { elementsVisibleOnPage, findPhoto, pageSize, sortByZ, type El, type PhotoEl, type RectEl, type Story, type TextEl, type VisibleEl } from './model';
 import type { Photo } from '../core/images';
 
@@ -205,6 +205,8 @@ export async function renderPage(story: Story, pageIndex: number, widthPx: numbe
   if (!page) return canvas;
 
   const visible: VisibleEl[] = sortByZ(elementsVisibleOnPage(story, pageIndex));
+  // Canvas text must not be drawn before the web fonts are ready (it would silently use the fallback).
+  await ensureFonts(visible.filter((e): e is TextEl & VisibleEl => e.kind === 'text' && !!e.text).map((e) => ({ font: e.font, weight: e.weight })));
   const own = opts.closeAfterDraw === true;
   const bitmaps = new Map<string, Bitmap | null>();
   if (!own) {

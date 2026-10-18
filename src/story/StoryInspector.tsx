@@ -3,9 +3,10 @@ import { Button, Segmented, Slider } from '../ui/Controls';
 import type { Photo } from '../core/images';
 import { Check, ColorInput, Field } from './fields';
 import { LayoutPicker } from './LayoutPicker';
-import type { LayoutOption } from './layouts';
-import { hasTitleEl } from './storyOps';
-import { ASPECTS, hiddenCount, type Aspect, type Page, type StyleId, type Story } from './model';
+import type { LayoutTarget } from './layouts';
+import { hasTitleEl, roleFont } from './storyOps';
+import { FontSelect } from './FontSelect';
+import { ASPECTS, hiddenCount, type Aspect, type FontKey, type Page, type StyleId, type Story } from './model';
 
 type Change = { style?: StyleId; aspect?: Aspect };
 type Props = {
@@ -14,11 +15,13 @@ type Props = {
   page: Page;
   pageIndex: number;
   extraPhotos: Photo[];
-  onLayout: (o: LayoutOption) => void;
+  onLayout: (o: LayoutTarget) => void;
   onPage: (p: Partial<Page>, key: string) => void;
   onTitle: (t: string) => void;
   onSubtitle: (t: string) => void;
   onRecreate: (c: Change) => void;
+  /** Set the font of every title / subtitle element (one undo step). */
+  onRoleFont: (role: 'title' | 'subtitle', font: FontKey) => void;
   onToggleHidden: () => void;
   onAddText: () => void;
   onAddSlot: () => void;
@@ -89,6 +92,16 @@ export function StoryInspector(p: Props) {
         <Field label="Subtitle">
           <input className="text-input" aria-label="Story subtitle" value={p.subtitle} onChange={(e) => p.onSubtitle(e.target.value)} placeholder="Optional" />
         </Field>
+        {roleFont(story, 'title') && (
+          <Field label="Title font">
+            <FontSelect label="Title font" value={roleFont(story, 'title')!} onChange={(f) => p.onRoleFont('title', f)} />
+          </Field>
+        )}
+        {roleFont(story, 'subtitle') && (
+          <Field label="Subtitle font">
+            <FontSelect label="Subtitle font" value={roleFont(story, 'subtitle')!} onChange={(f) => p.onRoleFont('subtitle', f)} />
+          </Field>
+        )}
         <Field label="Style">
           <Segmented<'clean' | 'stylized'> label="Style" value={story.style === 'stylized' ? 'stylized' : 'clean'} options={[{ value: 'clean', label: 'Clean' }, { value: 'stylized', label: 'Stylized' }]} onChange={(v) => request({ style: v })} />
         </Field>

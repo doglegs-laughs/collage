@@ -28,7 +28,7 @@ describe('moveToOwnPage', () => {
     expect(r.pageIndex).toBe(1);
     expect(r.story.pages).toHaveLength(2);
     expect(r.story.pages[0]).toMatchObject({ id: 'pg0', templateId: 'stack-2', background: '#fafafa', duration: 5 });
-    expect(r.story.pages[1]).toMatchObject({ templateId: 'single-border', duration: 5, background: '#fafafa' });
+    expect(r.story.pages[1]).toMatchObject({ templateId: 'single', finish: 'plain', duration: 5, background: '#fafafa' });
     expect(photoIdsOf(r.story.pages[1].elements)).toEqual(['a']);
     expect(all(r.story)).toEqual(all(s));
   });
@@ -47,7 +47,7 @@ describe('moveToOwnPage', () => {
   it('uses stylized singles', () => {
     const s = storyWith('pair-side', [P('a'), L('b')], [], 'stylized');
     const r = moveToOwnPage(s, 0, firstPhoto(s).id)!;
-    expect(r.story.pages.map((p) => p.templateId)).toEqual(['matted-single', 'framed-portrait']);
+    expect(r.story.pages.map((p) => [p.templateId, p.finish])).toEqual([['single', 'frame'], ['single', 'shadow']]);
   });
   it('turns grid-2x2 into a 3-photo layout', () => {
     const s = storyWith('grid-2x2', [L('a'), L('b'), L('c'), P('d')]);

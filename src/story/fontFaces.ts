@@ -1,0 +1,21 @@
+/** Bundled web fonts (OFL, @fontsource, latin subset). Imported once by the app entry; Vite copies the woff2 files into dist. */
+import '@fontsource/italiana/latin-400.css';
+import '@fontsource/poiret-one/latin-400.css';
+import '@fontsource/josefin-sans/latin-100.css';
+import '@fontsource/josefin-sans/latin-300.css';
+import '@fontsource/josefin-sans/latin-600.css';
+import '@fontsource/cormorant-garamond/latin-300.css';
+import '@fontsource/cormorant-garamond/latin-500.css';
+import '@fontsource/cormorant-garamond/latin-600.css';
+import '@fontsource/cormorant-garamond/latin-400-italic.css';
+import '@fontsource/playfair-display/latin-400.css';
+import '@fontsource/playfair-display/latin-700.css';
+import '@fontsource/montserrat/latin-300.css';
+import '@fontsource/montserrat/latin-500.css';
+import '@fontsource/montserrat/latin-700.css';
+import '@fontsource/bebas-neue/latin-400.css';
+import '@fontsource/caveat/latin-400.css';
+import '@fontsource/caveat/latin-600.css';
+import '@fontsource/dm-mono/latin-300.css';
+import '@fontsource/dm-mono/latin-400.css';
+import '@fontsource/marcellus/latin-400.css';

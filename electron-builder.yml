@@ -20,3 +20,20 @@ mac:
   extraResources:
     - from: resources/ffmpeg/darwin-${arch}/ffmpeg
       to: ffmpeg/ffmpeg
+win:
+  icon: build/icon.png
+  # Applies to the zip; nsis sets its own name below.
+  artifactName: Collage-win-x64.${ext}
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  extraResources:
+    # npm ci on a Windows runner installs the matching ffmpeg-static binary
+    - from: node_modules/ffmpeg-static/ffmpeg.exe
+      to: ffmpeg/ffmpeg.exe
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: Collage-Setup-${version}-x64.${ext}

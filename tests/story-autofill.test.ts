@@ -6,7 +6,9 @@ import { makePhotos, photoIdsOf } from './story-helpers';
 const styles: StyleId[] = ['clean', 'stylized'];
 const aspects: Aspect[] = ['4:5', '16:9', '9:16'];
 
-const templateRuns = (pages: Page[]) => pages.filter((p) => !p.spread || p.spread.index === 0).map((p) => p.templateId);
+/** Arrangement and finish together: three in a row of the same pair is what the rule forbids. */
+const templateRuns = (pages: Page[]) => pages.filter((p) => !p.spread || p.spread.index === 0).map((p) => `${p.templateId}/${p.finish ?? ''}`);
+const combo = (p: Page) => `${p.templateId}/${p.finish ?? ''}`;
 
 describe('makeStory', () => {
   for (const style of styles) {
@@ -65,7 +67,7 @@ describe('makeStory', () => {
   it('clean: cover with title, panorama for wide photos, overview grid near the end', () => {
     const wide = makePhotos(1, 1, [[6000, 2400]]);
     const rest = makePhotos(9, 4, [[3000, 4000], [4000, 3000]]).map((p, i) => ({ ...p, id: `r${i}` }));
-    const photos = [rest[0], ...wide.map((p) => ({ ...p, id: 'wide' })), ...rest.slice(1)];
+    const photos = [{ ...makePhotos(1, 1, [[3000, 4000]])[0], id: 'first' }, ...wide.map((p) => ({ ...p, id: 'wide' })), ...rest.slice(1)];
     const pages = makeStory(photos, { style: 'clean', aspect: '4:5', seed: 3, title: 'Faroe' });
     expect(pages[0].templateId).toBe('cover');
     expect(pages.at(-1)!.templateId).toBe('overview-grid');
@@ -120,7 +122,7 @@ describe('shuffleLayout', () => {
     expect(idx).toBeGreaterThanOrEqual(0);
     const next = shuffleLayout(story, idx, 77);
     expect(next.pages[idx].id).toBe(pages[idx].id);
-    expect(next.pages[idx].templateId).not.toBe(pages[idx].templateId);
+    expect(combo(next.pages[idx])).not.toBe(combo(pages[idx]));
     expect(photoIdsOf(next.pages[idx].elements)).toEqual(photoIdsOf(pages[idx].elements));
     expect(JSON.stringify(shuffleLayout(story, idx, 77))).toBe(JSON.stringify(next));
     expect(story.pages[idx].templateId).toBe(pages[idx].templateId);
@@ -156,14 +158,14 @@ describe('style rules', () => {
   });
   it('stylized: landscape runs can use the tight stacks', () => {
     const seen = new Set<string>();
-    for (let seed = 0; seed < 20; seed++) for (const p of makeStory(makePhotos(14, seed, L), { style: 'stylized', aspect: '4:5', seed })) seen.add(p.templateId!);
-    expect(seen.has('stack-2-tight') || seen.has('stack-3-tight')).toBe(true);
-    expect(seen.has('stack-2-tight') && seen.has('stack-3-tight')).toBe(true);
+    for (let seed = 0; seed < 20; seed++) for (const p of makeStory(makePhotos(14, seed, L), { style: 'stylized', aspect: '4:5', seed })) seen.add(combo(p));
+    expect(seen.has('stack-2/tight') || seen.has('stack-3/tight')).toBe(true);
+    expect(seen.has('stack-2/tight') && seen.has('stack-3/tight')).toBe(true);
   });
   it('stylized: landscape runs use the print mats for some seed without starving the others', () => {
     const seen = new Set<string>();
-    for (let seed = 0; seed < 20; seed++) for (const p of makeStory(makePhotos(14, seed, L), { style: 'stylized', aspect: '4:5', seed })) seen.add(p.templateId!);
-    expect(seen.has('print-mat-3') || seen.has('print-mat-4')).toBe(true);
-    expect(seen.has('stack-2-tight') && seen.has('stack-3-tight')).toBe(true);
+    for (let seed = 0; seed < 20; seed++) for (const p of makeStory(makePhotos(14, seed, L), { style: 'stylized', aspect: '4:5', seed })) seen.add(combo(p));
+    expect([...seen].some((k) => k.endsWith('/mat'))).toBe(true);
+    expect(seen.has('stack-2/tight') && seen.has('stack-3/tight')).toBe(true);
   });
 });

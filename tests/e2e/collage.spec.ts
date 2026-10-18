@@ -27,6 +27,7 @@ function jpegSize(file: string) {
 
 let dir: string;
 let photos: string[];
+let landscapes: string[];
 let app: ElectronApplication;
 let page: Page;
 
@@ -36,6 +37,11 @@ test.beforeAll(() => {
   photos = sizes.map((size, i) => {
     const out = path.join(dir, `photo${i + 1}.jpg`);
     execFileSync(ffmpeg, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', `testsrc=size=${size}`, '-vf', `hue=h=${i * 70}`, '-frames:v', '1', out]);
+    return out;
+  });
+  landscapes = ['3200x2400', '3000x2000', '2400x1800'].map((size, i) => {
+    const out = path.join(dir, `land${i + 1}.jpg`);
+    execFileSync(ffmpeg, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', `testsrc2=size=${size}`, '-vf', `hue=h=${i * 90}`, '-frames:v', '1', out]);
     return out;
   });
 });
@@ -96,4 +102,48 @@ test('removing a photo disables export, grid resize keeps photos, Send to Story 
   await expect(page.getByTestId('fill-count')).toHaveText('4 of 4');
   await page.getByRole('button', { name: 'Send to Story' }).click();
   await expect(page.locator('.toast.success')).toContainText('Story', { timeout: 90_000 });
+});
+
+test('Layout mode: three photos in Stack 3 with black borders export as a 4:5 JPEG', async () => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1500, height: 950 });
+  await page.getByTestId('collage-mode').getByRole('button', { name: 'Layout' }).click();
+  const layout = page.getByTestId('view-collage-layout');
+  await expect(layout).toBeVisible();
+  await expect(page.getByTestId('export-button')).toBeDisabled();
+
+  const target = path.join(dir, 'layout-out.jpg');
+  await app.evaluate(({ dialog }, a) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: a.photos })) as never;
+    dialog.showSaveDialog = (async () => ({ canceled: false, filePath: a.target })) as never;
+  }, { photos: landscapes, target });
+  await layout.locator('.story-tray').getByRole('button', { name: 'Add photos' }).click();
+
+  // The best fit for three landscapes is picked on its own; choose Stack 3 and Black borders from the picker.
+  const picker = page.getByTestId('layout-picker');
+  await expect(picker.locator('[data-option-id="stack-3"]')).toBeVisible({ timeout: 30_000 });
+  await picker.locator('[data-option-id="stack-3"]').click();
+  await expect(picker.locator('[data-option-id="stack-3"]')).toHaveAttribute('data-current', 'true');
+  await picker.locator('[data-finish-chip][data-finish="black"]').click();
+  await expect(picker.locator('[data-finish-chip][data-finish="black"]')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByTestId('story-page').locator('[data-kind="photo"]')).toHaveCount(3);
+  await page.waitForFunction(() => {
+    const imgs = [...document.querySelectorAll('[data-testid="view-collage-layout"] .story-stage img')] as HTMLImageElement[];
+    return imgs.length > 0 && imgs.every((i) => i.complete && i.naturalWidth > 0);
+  }, undefined, { timeout: 30_000 });
+  await expect(page.getByTestId('layout-picker').locator('.lp-thumb img').first()).toBeVisible({ timeout: 30_000 });
+  fs.mkdirSync(path.join(root, 'test-results'), { recursive: true });
+  await page.screenshot({ path: path.join(root, 'test-results', 'collage-layout.png') });
+
+  await page.getByTestId('layout-export-size').getByRole('button', { name: '2160' }).click();
+  await page.getByTestId('export-button').click();
+  await expect.poll(() => fs.existsSync(target), { timeout: 120_000 }).toBe(true);
+  await expect(page.locator('.toast.success')).toContainText('Saved', { timeout: 30_000 });
+  const size = jpegSize(target);
+  expect(size).toEqual({ width: 1728, height: 2160 });
+
+  // The grid is still there, untouched.
+  await page.getByTestId('collage-mode').getByRole('button', { name: 'Grid' }).click();
+  await expect(page.getByTestId('view-collage')).toBeVisible();
+  await expect(page.getByTestId('fill-count')).toBeVisible();
 });

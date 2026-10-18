@@ -206,6 +206,7 @@ export function PhotoTray({ photos, selected, onToggle, onRemove, onImport, onDr
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const restoreFocus = useRef<string | null>(null);
+  const section = useRef<HTMLElement>(null);
   const previewIndex = previewId ? photos.findIndex((p) => p.id === previewId) : -1;
   const open = previewIndex >= 0;
   useEffect(() => { if (previewId && previewIndex < 0) setPreviewId(null); }, [previewId, previewIndex]);
@@ -218,7 +219,7 @@ export function PhotoTray({ photos, selected, onToggle, onRemove, onImport, onDr
     if (previewId || !restoreFocus.current) return;
     const id = restoreFocus.current;
     restoreFocus.current = null;
-    [...document.querySelectorAll<HTMLElement>('.tray-pick')].find((el) => el.dataset.photoId === id)?.focus();
+    [...(section.current?.querySelectorAll<HTMLElement>('.tray-pick') ?? [])].find((el) => el.dataset.photoId === id)?.focus();
   }, [previewId]);
   const removeFromPreview = (id: string) => {
     const i = photos.findIndex((p) => p.id === id);
@@ -229,6 +230,7 @@ export function PhotoTray({ photos, selected, onToggle, onRemove, onImport, onDr
   const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
   return (
     <section
+      ref={section}
       className={`tray ${over ? 'dropping' : ''} ${className}`}
       aria-label={title}
       onDragOver={(e) => { if (hasFiles(e)) { e.preventDefault(); setOver(true); } }}

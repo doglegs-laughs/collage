@@ -76,6 +76,7 @@ export function BordersView() {
       const out = await exportBorders(batch, {
         options: settings,
         fill,
+        caption: settings.caption,
         folder,
         cancelled: () => cancelRequested.current,
         onProgress: (done, total) => setProgress({ done, total }),

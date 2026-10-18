@@ -1,7 +1,7 @@
 import { DEFAULT_CROP } from '../core/geometry';
 import type { Photo } from '../core/images';
 import { makeStory } from './autofill';
-import { applyLayout, FULL_EACH, layoutOptions, pageSeed, userTexts, type LayoutOption } from './layouts';
+import { applyLayout, FULL_EACH, layoutOptions, pageSeed, userTexts, type LayoutTarget } from './layouts';
 import { addPage, aspectRatio, groupOf, newId, type El, type Page, type PhotoEl, type Story } from './model';
 import { getTemplate, orientationOf, type Template } from './templates';
 
@@ -11,8 +11,8 @@ export type MoveOpts = {
   insertAt?: number;
 };
 
-/** "stack-3-tight" and "stack-2-tight" are one family, as are "grid-2x2" and "grid-3x3". */
-const familyOf = (id: string | null): string => (id ?? '').replace(/-\d+(x\d+)?(?=-tight$|$)/, '');
+/** "stack-3" and "stack-2" are one family, as are "grid-2x2" and "grid-3x3" (the finish is kept separately). */
+const familyOf = (id: string | null): string => (getTemplate(id)?.id ?? id ?? '').replace(/-\d+(x\d+)?$/, '');
 
 /** The style's default layout for one photo on its own page. */
 export function singleTemplateFor(style: Story['style'], photo: Photo | undefined): string {
@@ -22,7 +22,7 @@ export function singleTemplateFor(style: Story['style'], photo: Photo | undefine
   return 'single-border';
 }
 
-const optionOf = (t: Template): LayoutOption => ({ id: t.id, name: t.name, templateId: t.id, slots: t.slots, pages: t.pageCount, current: false, slotsDiffer: false });
+const optionOf = (t: Template): LayoutTarget => ({ arrangement: t.id, finish: t.finish });
 
 const ratioOf = (e: PhotoEl, A: number) => (e.w * A) / Math.max(1e-9, e.h);
 
@@ -81,15 +81,15 @@ export function moveToOwnPage(story: Story, pageIndex: number, elementId: string
     pages: story.pages.map((p, i) => (i === srcIndex ? { ...p, elements: p.elements.filter((e) => e.id !== elementId) } : p)),
   };
   const n = groupPhotos.length - 1;
-  let option: LayoutOption | undefined;
+  let option: LayoutTarget | undefined;
   if (n === 1) {
     const left = groupPhotos.find((e) => e.id !== elementId)!;
     const t = getTemplate(singleTemplateFor(story.style, story.photos.find((p) => p.id === left.photoId)));
     if (t) option = optionOf(t);
   } else {
-    const all = layoutOptions(without, srcIndex).filter((o) => o.templateId !== FULL_EACH && o.pages === 1 && o.slots === n && !o.slotsDiffer);
+    const all = layoutOptions(without, srcIndex).filter((o) => o.arrangement !== FULL_EACH && o.pages === 1 && o.slots === n && !o.slotsDiffer);
     const fam = familyOf(source.templateId);
-    option = (fam && all.find((o) => !o.slotsDiffer && o.slots === n && familyOf(o.templateId) === fam)) || all[0];
+    option = (fam && all.find((o) => !o.slotsDiffer && o.slots === n && familyOf(o.arrangement) === fam)) || all[0];
   }
   const relaid = option ? applyLayout(without, srcIndex, option, { seed }).story : relayAll(story, without, start, end, srcIndex, seed);
   const delta = relaid.pages.length - story.pages.length;
@@ -102,7 +102,7 @@ export function moveToOwnPage(story: Story, pageIndex: number, elementId: string
   const keep = Math.abs(ratioOf(base, A) / ratioOf(moved, A) - 1) <= 0.05;
   const els: El[] = res.pages[0].map((e) => (e === base ? { ...base, crop: keep ? { ...moved!.crop } : { ...DEFAULT_CROP } } : e));
   const ownBg = res.backgrounds[0] && res.backgrounds[0].toLowerCase() !== '#ffffff' ? res.backgrounds[0] : undefined;
-  const page: Page = { id: newId(), templateId: t.id, background: ownBg ?? source.background, elements: els, duration: source.duration };
+  const page: Page = { id: newId(), templateId: t.id, ...(t.finish ? { finish: t.finish } : {}), background: ownBg ?? source.background, elements: els, duration: source.duration };
 
   // 3. Where it goes (positions are in the original numbering; the relaid group may have a different length).
   let at = opts.insertAt === undefined ? end : Math.max(0, Math.min(opts.insertAt, story.pages.length));

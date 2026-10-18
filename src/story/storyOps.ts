@@ -1,5 +1,6 @@
 import { breakLines } from './templates';
-import { addPage, makeRng, type El, type PhotoEl, type Story, type TextEl } from './model';
+import { addPage, makeRng, type El, type FontKey, type PhotoEl, type Story, type TextEl } from './model';
+import { snapWeight } from './fonts';
 import { buildPages } from './autofill';
 import { getTemplate, titleElements } from './templates';
 
@@ -52,6 +53,17 @@ export function setRoleText(story: Story, role: 'title' | 'subtitle', text: stri
     return { ...p, elements: p.elements.map((e) => (e.kind === 'text' && e.role === role ? ({ ...e, text: rewrap(e.text, text) } as TextEl) : e)) };
   });
   return changed ? { ...story, pages } : story;
+}
+
+/** Font of the first element with `role`, or undefined when there is none. */
+export function roleFont(story: Story, role: 'title' | 'subtitle'): FontKey | undefined {
+  for (const p of story.pages) for (const e of p.elements) if (e.kind === 'text' && e.role === role) return e.font;
+  return undefined;
+}
+/** Give every element with `role` the font (weights snap to what the family offers). One story change. */
+export function setRoleFont(story: Story, role: 'title' | 'subtitle', font: FontKey): Story {
+  const pages = story.pages.map((p) => ({ ...p, elements: p.elements.map((e) => (e.kind === 'text' && e.role === role ? ({ ...e, font, weight: snapWeight(font, e.weight) } as TextEl) : e)) }));
+  return { ...story, pages };
 }
 
 /** Insert a new first page with the style's cover (photo used again is fine). Returns the story and the new page's index (0). */

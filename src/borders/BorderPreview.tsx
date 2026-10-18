@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { getPreviewBitmap, type Photo } from '../core/images';
-import { borderLayout } from './borderMath';
+import { finishLayout } from './borderMath';
 import type { BorderSettings } from './BorderControls';
-import { drawBorder } from './render';
+import { drawBorder, prepareFonts } from './render';
 import { messageOf } from './exportBorders';
 
 /** The preview is drawn at this long edge; proportions match the export at any size. */
@@ -20,27 +20,27 @@ type Props = {
 export function BorderPreview({ photo, index, count, settings, fill, onStep }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState<string | null>(null);
-  const { borderPct, shape } = settings;
+  const { finish, framePct, matPct, borderPct, shape, caption } = settings;
 
   useEffect(() => {
     let live = true;
     setError(null);
-    getPreviewBitmap(photo)
-      .then((bitmap) => {
+    Promise.all([getPreviewBitmap(photo), prepareFonts()])
+      .then(([bitmap]) => {
         const canvas = canvasRef.current;
         if (!live || !canvas) return;
-        const layout = borderLayout({ width: photo.width, height: photo.height }, { borderPct, shape, longEdge: PREVIEW_LONG_EDGE });
+        const layout = finishLayout({ width: photo.width, height: photo.height }, { finish, framePct, matPct, borderPct, shape, longEdge: PREVIEW_LONG_EDGE });
         canvas.width = layout.canvasW;
         canvas.height = layout.canvasH;
-        drawBorder(canvas.getContext('2d')!, bitmap, layout, fill);
+        drawBorder(canvas.getContext('2d')!, bitmap, layout, { finish, fill, caption });
       })
       .catch((e: unknown) => live && setError(messageOf(e)));
     return () => {
       live = false;
     };
-  }, [photo, borderPct, shape, fill]);
+  }, [photo, finish, framePct, matPct, borderPct, shape, fill, caption]);
 
-  const output = borderLayout({ width: photo.width, height: photo.height }, settings);
+  const output = finishLayout({ width: photo.width, height: photo.height }, settings);
 
   return (
     <>
