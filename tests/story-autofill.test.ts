@@ -160,4 +160,10 @@ describe('style rules', () => {
     expect(seen.has('stack-2-tight') || seen.has('stack-3-tight')).toBe(true);
     expect(seen.has('stack-2-tight') && seen.has('stack-3-tight')).toBe(true);
   });
+  it('stylized: landscape runs use the print mats for some seed without starving the others', () => {
+    const seen = new Set<string>();
+    for (let seed = 0; seed < 20; seed++) for (const p of makeStory(makePhotos(14, seed, L), { style: 'stylized', aspect: '4:5', seed })) seen.add(p.templateId!);
+    expect(seen.has('print-mat-3') || seen.has('print-mat-4')).toBe(true);
+    expect(seen.has('stack-2-tight') && seen.has('stack-3-tight')).toBe(true);
+  });
 });
