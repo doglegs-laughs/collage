@@ -64,6 +64,10 @@ test('preview a photo, step through, toggle include, close; clear all', async ()
   await expect(page.getByTestId('preview-position')).toHaveText('3 / 3');
   await page.waitForFunction(() => !!document.querySelector('.lightbox-img.ready'));
   await page.waitForTimeout(300);
+  // Exactly one image is visible in the overlay and no hover preview is showing.
+  const visibleImgs = await overlay.locator('img').evaluateAll((els) => els.filter((e) => getComputedStyle(e).opacity !== '0' && e.getBoundingClientRect().width > 0).map((e) => e.className));
+  expect(visibleImgs).toEqual(['lightbox-img ready']);
+  await expect(page.locator('.hover-preview')).toHaveCount(0);
   await page.screenshot({ path: path.join(shots, 'photo-preview.png') });
 
   await overlay.getByRole('checkbox').click();
@@ -91,4 +95,31 @@ test('preview a photo, step through, toggle include, close; clear all', async ()
   await view.getByRole('button', { name: 'Remove all' }).click();
   await expect(items).toHaveCount(0);
   await expect(view.getByText('0 of 0 selected')).toBeVisible();
+});
+
+test('Clear all in Story can be undone and the images render again', async () => {
+  test.setTimeout(120_000);
+  const view = page.getByTestId('view-story');
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  const items = view.locator('.tray-item');
+  await expect(items).toHaveCount(3, { timeout: 60_000 });
+  await page.getByTestId('make-story').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  const stageImages = () =>
+    page.waitForFunction(() => {
+      const imgs = [...document.querySelectorAll('[data-testid="view-story"] .story-stage img')] as HTMLImageElement[];
+      return imgs.length > 0 && imgs.every((i) => i.complete && i.naturalWidth > 0);
+    }, undefined, { timeout: 30_000 });
+  await stageImages();
+
+  await view.getByRole('button', { name: 'Clear all' }).click();
+  await view.getByRole('button', { name: 'Remove all' }).click();
+  await expect(items).toHaveCount(0);
+
+  await page.locator('body').click({ position: { x: 700, y: 20 } });
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(items).toHaveCount(3);
+  await expect(view.getByText(/of 3 selected/)).toBeVisible();
+  await expect.poll(() => view.locator('.story-stage img').count()).toBeGreaterThan(0);
+  await stageImages();
 });

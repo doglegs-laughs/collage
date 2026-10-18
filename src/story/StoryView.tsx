@@ -88,6 +88,11 @@ export function StoryView() {
     lib.remove(id);
     st.mutate((s) => removePhotos(s, [id]));
   };
+  // Undoing a remove or Clear all brings photos back into the story; keep the tray in step.
+  useEffect(() => {
+    const missing = story.photos.filter((p) => !lib.get(p.id));
+    if (missing.length) lib.adopt(missing);
+  }, [story.photos, lib.photos]); // eslint-disable-line react-hooks/exhaustive-deps
   const clearTray = () => {
     const ids = lib.photos.map((p) => p.id);
     lib.clear();

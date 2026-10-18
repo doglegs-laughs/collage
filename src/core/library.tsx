@@ -10,6 +10,8 @@ export type PhotoLibrary = {
   addPaths: (paths: string[]) => Promise<Photo[]>;
   /** Opens the native picker (or a file input in a browser) and imports the choice. */
   pick: () => Promise<Photo[]>;
+  /** Puts already-imported photos back (e.g. when an undo brings them back). Ones already present are ignored. */
+  adopt: (photos: Photo[]) => void;
   remove: (id: string) => void;
   /** Removes every photo and frees their cached bitmaps and URLs. */
   clear: () => void;
@@ -69,6 +71,7 @@ export function PhotoLibraryProvider({ children }: { children: ReactNode }) {
     releasePhoto(id);
     setPhotos((p) => p.filter((x) => x.id !== id));
   }, []);
+  const adopt = useCallback((list: Photo[]) => { ingest({ photos: list, failed: [] }); }, [ingest]);
   const clear = useCallback(() => {
     for (const id of byId.current.keys()) releasePhoto(id);
     byId.current.clear();
@@ -76,6 +79,6 @@ export function PhotoLibraryProvider({ children }: { children: ReactNode }) {
   }, []);
   const get = useCallback((id: string) => byId.current.get(id), []);
 
-  const value = useMemo(() => ({ photos, addFiles, addPaths, pick, remove, clear, get }), [photos, addFiles, addPaths, pick, remove, clear, get]);
+  const value = useMemo(() => ({ photos, addFiles, addPaths, pick, remove, adopt, clear, get }), [photos, addFiles, addPaths, pick, remove, adopt, clear, get]);
   return <PhotoLibraryContext.Provider value={value}>{children}</PhotoLibraryContext.Provider>;
 }
