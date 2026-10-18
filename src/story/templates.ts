@@ -324,7 +324,8 @@ function buildPrintMat3(c: Ctx, photos: Photo[]): Built {
   const { aw, ah } = matAvail(c);
   const stacked = photos.reduce((a, p) => a + ar(p), 0) / Math.max(photos.length, 1) >= 1;
   if (stacked) {
-    const a = clampedMean(photos, 1.3, 1.9);
+    // Crop wide enough that the stack fills the mat width, like the reference stacks (up to ~2.6:1).
+    const a = clampN(Math.max(clampedMean(photos, 1.3, 1.9), (3 * aw) / (ah - 2 * c.g)), 1.3, 2.6);
     const w = Math.min(aw, (ah - 2 * c.g) / (3 / a));
     const h = w / a;
     const mat = matAround(c, w, 3 * h + 2 * c.g);
