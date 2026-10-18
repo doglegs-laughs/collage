@@ -1,3 +1,4 @@
+import { FONT_ADVANCE } from '../src/story/fonts';
 import { describe, expect, it } from 'vitest';
 import { ASPECTS, aspectRatio, type Aspect, type El, type PhotoEl } from '../src/story/model';
 import { layoutElementPx } from '../src/story/render';
@@ -188,7 +189,7 @@ describe('aspect preservation and centring', () => {
     expect(bg.kind === 'photo' && bg.blur).toBeGreaterThan(0);
     expect(card.kind === 'photo' && card.frameBottom).toBeGreaterThan(0);
     expect(Math.abs(card.rotation)).toBeLessThanOrEqual(3);
-    expect(cap.kind === 'text' && cap.font).toBe('mono');
+    expect(cap.kind === 'text' && cap.font).toBe('dmmono');
     expect(cap.rotation).toBe(card.rotation);
     expect(getTemplate('polaroid-on-photo')!.layout('4:5', makePhotos(2)).pages[0]).toHaveLength(2);
   });
@@ -222,7 +223,7 @@ describe('reference sizing', () => {
       const H = 1 / aspectRatio(aspect);
       const t = getTemplate('cover')!.layout(aspect, makePhotos(1), { title: 'The Faroes', subtitle: 'June 2025' }).pages[0].filter((e) => e.kind === 'text');
       const title = t[0] as import('../src/story/model').TextEl;
-      const widthUnits = 'THE FAROES'.length * (0.58 + title.letterSpacing) * title.size * H;
+      const widthUnits = 'THE FAROES'.length * (FONT_ADVANCE[title.font] + title.letterSpacing) * title.size * H;
       expect(widthUnits).toBeGreaterThan(0.7);
       expect(widthUnits).toBeLessThan(0.86);
       expect(title.size).toBeGreaterThanOrEqual(0.05);

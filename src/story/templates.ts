@@ -1,5 +1,6 @@
 import { aspectRatio, defaultPhotoEl, defaultRectEl, defaultTextEl, makeRng, type Aspect, type El, type PhotoEl, type StyleId, type TextEl } from './model';
 import type { Photo } from '../core/images';
+import { FONT_ADVANCE, snapWeight } from './fonts';
 
 export type Orient = 'p' | 'l' | 's';
 export type Category = 'title' | 'single' | 'pair' | 'trio' | 'grid' | 'story';
@@ -90,23 +91,34 @@ function clampCenter(c: Ctx, cx: number, cy: number, w: number, h: number, rot: 
 const WHITE = '#ffffff';
 type Built = { pages: El[][]; bg?: string };
 
-const ADVANCE: Record<TextEl['font'], number> = { display: 0.58, displaySans: 0.56, serif: 0.55, sans: 0.54, mono: 0.6 };
+type TextStyle = { font: TextEl['font']; weight: TextEl['weight']; ls: number };
+type TitleStyle = TextStyle & { color: string; upper: boolean; shadow: boolean; sub?: TextStyle };
+/** Default title look per font: Italiana (the Faroes look) is airy but not extreme, geometric sans fonts are widest. */
+export const titleSpacing = (font: TextEl['font']): number => (font === 'italiana' ? 0.12 : font === 'displaySans' || font === 'josefin' || font === 'montserrat' ? 0.25 : 0.18);
+const SUBTITLE_STYLE: TextStyle = { font: 'josefin', weight: 300, ls: 0.3 };
+type Box = { x: number; w: number };
+/** Height (width units) of a block of text elements. */
+const blockHeight = (c: Ctx, els: TextEl[]) => Math.max(0, ...els.map((e) => (e.y + e.h) / c.A));
+const shiftY = (c: Ctx, els: TextEl[], dy: number) => els.map((e) => ({ ...e, y: e.y + dy * c.A }));
 
-type TitleStyle = { font: TextEl['font']; weight: TextEl['weight']; color: string; ls: number; upper: boolean; shadow: boolean };
-/** Large title sized so the longest line spans ~80% of the page width, clamped to 5%..13% of page height. */
-function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: number, o: TitleStyle): TextEl[] {
-  const adv = ADVANCE[o.font] * (o.upper ? 1 : 0.8) + o.ls;
+/** Large title sized so the longest line spans ~80% of the page width (of `box`), clamped to 5%..13% of page height. */
+function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: number, o: TitleStyle, box?: Box): TextEl[] {
+  const bx = box ?? { x: 0.05, w: 0.9 };
+  const target = (0.8 / 0.9) * bx.w;
+  const weight = snapWeight(o.font, o.weight);
+  const adv = FONT_ADVANCE[o.font] * (o.upper ? 1 : 0.8) + o.ls;
   const minFu = 0.05 * c.H;
   const maxFu = 0.13 * c.H;
   const flat = title.replace(/\s+/g, ' ').trim();
-  const single = 0.8 / (Math.max(1, flat.length) * adv);
-  const lines = single >= minFu || flat.includes('\n') === false && !/\s/.test(flat) ? [flat] : breakLines(title, Math.max(4, Math.floor(0.8 / (minFu * adv))));
+  const single = target / (Math.max(1, flat.length) * adv);
+  const lines = single >= minFu || flat.includes('\n') === false && !/\s/.test(flat) ? [flat] : breakLines(title, Math.max(4, Math.floor(target / (minFu * adv))));
   const longest = Math.max(1, ...lines.map((l) => l.length));
-  const fu = clampN(0.8 / (longest * adv), minFu, maxFu);
-  const out = [textEl(c, { x: 0.05, y, w: 0.9, h: lines.length * fu * 1.25 }, fu, { text: lines.join('\n'), role: 'title', font: o.font, weight: o.weight, color: o.color, letterSpacing: o.ls, uppercase: o.upper, shadow: o.shadow, align: 'center' })];
+  const fu = clampN(target / (longest * adv), box ? Math.min(minFu, 0.02 * c.H) : minFu, maxFu);
+  const out = [textEl(c, { x: bx.x, y, w: bx.w, h: lines.length * fu * 1.25 }, fu, { text: lines.join('\n'), role: 'title', font: o.font, weight, color: o.color, letterSpacing: o.ls, uppercase: o.upper, shadow: o.shadow, align: 'center' })];
   if (subtitle) {
     const sfu = 0.022 * c.H;
-    out.push(textEl(c, { x: 0.05, y: y + lines.length * fu * 1.25 + sfu * 0.5, w: 0.9, h: sfu * 1.4 }, sfu, { text: subtitle, role: 'subtitle', font: 'displaySans', weight: 300, color: o.color, letterSpacing: 0.3, uppercase: true, shadow: o.shadow, align: 'center' }));
+    const sub = o.sub ?? SUBTITLE_STYLE;
+    out.push(textEl(c, { x: bx.x, y: y + lines.length * fu * 1.25 + sfu * 0.5, w: bx.w, h: sfu * 1.4 }, sfu, { text: subtitle, role: 'subtitle', font: sub.font, weight: snapWeight(sub.font, sub.weight), color: o.color, letterSpacing: sub.ls, uppercase: true, shadow: o.shadow, align: 'center' }));
   }
   return out;
 }
@@ -118,17 +130,16 @@ function titleBlock(c: Ctx, title: string, subtitle: string | undefined, y: numb
 export function titleElements(aspect: Aspect, title: string, subtitle: string | undefined, o: { font?: TextEl['font']; color?: string; y?: number; shadow?: boolean } = {}): TextEl[] {
   const A = aspectRatio(aspect);
   const c: Ctx = { A, H: 1 / A, g: 0.025, m: 0.025, seed: 1, opts: {} };
-  const sans = o.font === 'displaySans';
-  const font = o.font ?? 'display';
+  const font = o.font ?? 'italiana';
   const color = o.color ?? '#ffffff';
-  const els = titleBlock(c, title, subtitle?.trim() || undefined, (o.y ?? 0.09) * c.H, { font, weight: sans ? 300 : 400, color, ls: sans ? 0.25 : 0.18, upper: true, shadow: o.shadow ?? color.toLowerCase() === '#ffffff' });
+  const els = titleBlock(c, title, subtitle?.trim() || undefined, (o.y ?? 0.09) * c.H, { font, weight: 400, ls: titleSpacing(font), color, upper: true, shadow: o.shadow ?? color.toLowerCase() === '#ffffff' });
   return els.map((e, z) => ({ ...e, z }));
 }
 
 const buildCover = (sans: boolean) => (c: Ctx, [p]: Photo[]): Built => {
   const els: El[] = [photoEl(c, p, { x: 0, y: 0, w: 1, h: c.H })];
   if (c.opts.title) {
-    els.push(...titleBlock(c, c.opts.title, c.opts.subtitle, 0.09 * c.H, { font: sans ? 'displaySans' : 'display', weight: sans ? 300 : 400, color: '#ffffff', ls: sans ? 0.25 : 0.18, upper: true, shadow: true }));
+    els.push(...titleBlock(c, c.opts.title, c.opts.subtitle, 0.09 * c.H, sans ? { font: 'montserrat', weight: 300, ls: 0.25, color: '#ffffff', upper: true, shadow: true, sub: { font: 'montserrat', weight: 300, ls: 0.3 } } : { font: 'italiana', weight: 400, ls: 0.12, color: '#ffffff', upper: true, shadow: true }));
   }
   return { pages: [els] };
 };
@@ -141,7 +152,54 @@ function buildTitleCard(c: Ctx, [hero]: Photo[]): Built {
     els.push(photoEl(c, hero, { x: c.m, y: c.m, w: Wav, h: Hav * 0.55 }));
     ty = c.m + Hav * 0.55 + Hav * 0.08;
   }
-  if (c.opts.title) els.push(...titleBlock(c, c.opts.title, c.opts.subtitle, ty, { font: 'display', weight: 400, color: '#111111', ls: 0.12, upper: true, shadow: false }));
+  if (c.opts.title) els.push(...titleBlock(c, c.opts.title, c.opts.subtitle, ty, { font: 'italiana', weight: 400, color: '#111111', ls: 0.12, upper: true, shadow: false }));
+  return { pages: [els] };
+}
+
+const WHITE_COVER: TitleStyle = { font: 'italiana', weight: 400, ls: 0.12, color: '#ffffff', upper: true, shadow: true };
+const DARK_COVER: TitleStyle = { font: 'italiana', weight: 400, ls: 0.12, color: '#111111', upper: true, shadow: false };
+
+/** Cover: photo inset with an even white margin (the single-border margin), title overlaid near its top. */
+function buildCoverBorder(c: Ctx, [p]: Photo[]): Built {
+  const { Wav, Hav } = dims(c);
+  const b = fitLoose(ar(p), Wav, Hav);
+  const r = centered(c, b.w, b.h);
+  const els: El[] = [photoEl(c, p, r)];
+  if (c.opts.title) {
+    const box = { x: r.x + 0.025, w: r.w - 0.05 };
+    els.push(...titleBlock(c, c.opts.title, c.opts.subtitle, r.y + Math.min(0.07 * c.H, r.h * 0.1), WHITE_COVER, box));
+  }
+  return { pages: [els] };
+}
+/** Cover: photo with an even side/top margin and a deeper white band below holding the dark title and subtitle. */
+function buildCoverBorderBelow(c: Ctx, [p]: Photo[]): Built {
+  const { Wav } = dims(c);
+  const pad = 0.035;
+  const text = c.opts.title ? titleBlock(c, c.opts.title, c.opts.subtitle, 0, DARK_COVER, { x: c.m, w: Wav }) : [];
+  const th = blockHeight(c, text);
+  const band = text.length ? th + 2 * pad : c.m;
+  const b = fitLoose(ar(p), Wav, c.H - c.m - band);
+  const top = Math.max(c.m, (c.H - (b.h + band)) / 2);
+  const els: El[] = [photoEl(c, p, { x: (1 - b.w) / 2, y: top, w: b.w, h: b.h })];
+  els.push(...shiftY(c, text, top + b.h + pad));
+  return { pages: [els] };
+}
+/** Cover: photo inside the print-mat paper, dark title and subtitle on the white page below the mat (above it for wide photos on tall pages). */
+function buildCoverMat(c: Ctx, [p]: Photo[]): Built {
+  const { aw, ah } = matAvail(c);
+  const gap = 0.03;
+  const text = c.opts.title ? titleBlock(c, c.opts.title, c.opts.subtitle, 0, DARK_COVER, { x: c.m, w: 1 - 2 * c.m }) : [];
+  const th = blockHeight(c, text);
+  const reserve = text.length ? th + gap : 0;
+  const b = fitBox(ar(p), aw, ah - reserve);
+  const mat = matAround(c, b.w, b.h);
+  const total = mat.paper.h + reserve;
+  const above = ar(p) > 1.15 && c.A > 1;
+  const y0 = (c.H - total) / 2;
+  const paperY = y0 + (above ? reserve : 0);
+  const dy = paperY - mat.paper.y;
+  const els: El[] = [{ ...mat.rect, y: mat.rect.y + dy * c.A }, photoEl(c, p, { x: mat.x, y: mat.y + dy, w: b.w, h: b.h })];
+  els.push(...shiftY(c, text, above ? y0 : y0 + mat.paper.h + gap));
   return { pages: [els] };
 }
 
@@ -175,11 +233,11 @@ const buildPano = (n: number) => (c: Ctx, [p]: Photo[]): Built => {
   pages[0].push(photoEl(c, p, { x: c.m, y: (c.H - h) / 2, w, h }));
   return { pages };
 };
-const buildStack = (n: number, tight: boolean) => (c: Ctx, photos: Photo[]): Built => {
+const buildStack = (n: number, tight: boolean, black = false) => (c: Ctx, photos: Photo[]): Built => {
   const g = tight ? 0.005 : c.g;
   const { Wav, Hav } = dims(c);
   const h = (Hav - (n - 1) * g) / n;
-  return { pages: [photos.slice(0, n).map((p, i) => photoEl(c, p, { x: c.m, y: c.m + i * (h + g), w: Wav, h }))] };
+  return { pages: [photos.slice(0, n).map((p, i) => photoEl(c, p, { x: c.m, y: c.m + i * (h + g), w: Wav, h }, black ? { frame: 0.006, frameBottom: 0.006, frameColor: '#000000' } : {}))] };
 };
 /** Two photos stacked at a common width, aspects preserved; returns the rects and total size. */
 function stackedPair(c: Ctx, photos: Photo[], availW: number, availH: number) {
@@ -290,7 +348,7 @@ function buildPolaroidOnPhoto(c: Ctx, [bg, card]: Photo[]): Built {
     const ty = cy + dy * Math.cos(t);
     const tw = cw * 0.8;
     const th = band * 0.5;
-    els.push(textEl(c, { x: tx - tw / 2, y: ty - th / 2, w: tw, h: th }, band * 0.26, { text: c.opts.caption, role: 'title', font: 'mono', weight: 400, color: '#3a3733', rotation: rot, align: 'center' }));
+    els.push(textEl(c, { x: tx - tw / 2, y: ty - th / 2, w: tw, h: th }, band * 0.26, { text: c.opts.caption, role: 'title', font: 'dmmono', weight: 400, color: '#3a3733', rotation: rot, align: 'center' }));
   }
   return { pages: [els] };
 }
@@ -300,11 +358,11 @@ function buildMagazine(c: Ctx, [p]: Photo[]): Built {
   const els: El[] = [photoEl(c, p, { x: c.m, y: c.m, w: Wav, h: ph })];
   if (c.opts.title) {
     const lines = breakLines(c.opts.title, 12);
-    const fu = Math.min(0.11, 0.8 / (Math.max(...lines.map((l) => l.length)) * 0.55));
+    const fu = Math.min(0.11, 0.8 / (Math.max(...lines.map((l) => l.length)) * (FONT_ADVANCE.playfair + 0.05)));
     const th = lines.length * fu * 1.2;
-    els.push(textEl(c, { x: c.m + 0.04, y: c.m + ph - th - 0.03, w: Wav - 0.08, h: th }, fu, { text: lines.join('\n'), role: 'title', font: 'serif', weight: 600, color: '#ffffff', align: 'left', shadow: true }));
+    els.push(textEl(c, { x: c.m + 0.04, y: c.m + ph - th - 0.03, w: Wav - 0.08, h: th }, fu, { text: lines.join('\n'), role: 'title', font: 'playfair', weight: 700, color: '#ffffff', align: 'left', shadow: true }));
   }
-  if (c.opts.subtitle) els.push(textEl(c, { x: c.m, y: c.m + ph + 0.015, w: Wav, h: 0.03 }, 0.018, { text: c.opts.subtitle, role: 'subtitle', font: 'mono', color: '#444444', align: 'left' }));
+  if (c.opts.subtitle) els.push(textEl(c, { x: c.m, y: c.m + ph + 0.015, w: Wav, h: 0.03 }, 0.018, { text: c.opts.subtitle, role: 'subtitle', font: 'dmmono', color: '#444444', align: 'left' }));
   return { pages: [els] };
 }
 function buildPrintMat(c: Ctx, photos: Photo[]): Built {
@@ -407,6 +465,9 @@ const W = (p: number, l: number, s: number): Want => ({ p, l, s });
 export const TEMPLATES: Template[] = [
   make({ id: 'cover', name: 'Cover', category: 'title', slots: 1, want: W(1, 0.7, 0.8), build: buildCover(false) }),
   make({ id: 'cover-sans', name: 'Cover (sans)', category: 'title', slots: 1, want: W(0.9, 0.7, 0.8), build: buildCover(true) }),
+  make({ id: 'cover-border', name: 'Cover — white border', category: 'title', slots: 1, want: W(0.8, 1, 0.9), build: buildCoverBorder }),
+  make({ id: 'cover-border-below', name: 'Cover — white border, title below', category: 'title', slots: 1, want: W(0.8, 1, 0.9), build: buildCoverBorderBelow }),
+  make({ id: 'cover-mat', name: 'Cover — print mat', category: 'title', slots: 1, want: W(0.7, 1, 0.8), build: buildCoverMat }),
   make({ id: 'title-card', name: 'Title card', category: 'title', slots: 0, want: W(0, 0, 0), build: buildTitleCard }),
   make({ id: 'single-bleed', name: 'Single, full bleed', category: 'single', slots: 1, want: W(0.8, 0.4, 0.6), build: buildBleed }),
   make({ id: 'single-border', name: 'Single, white border', category: 'single', slots: 1, want: W(0.6, 0.55, 0.7), build: buildBorder }),
@@ -417,6 +478,8 @@ export const TEMPLATES: Template[] = [
   make({ id: 'pano-3', name: 'Panorama (3 pages)', category: 'story', slots: 1, pages: 3, want: W(0, 0.8, 0.1), build: buildPano(3) }),
   make({ id: 'stack-2', name: 'Stack 2', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, only: ['l'], build: buildStack(2, false) }),
   make({ id: 'stack-3', name: 'Stack 3', category: 'trio', slots: 3, want: W(0.1, 1, 0.3), bias: tallPage, only: ['l'], build: buildStack(3, false) }),
+  { ...make({ id: 'stack-2-black', name: 'Stack 2 — black borders', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, only: ['l'], build: buildStack(2, false, true) }), fits: (o, a) => 0.95 * (getTemplate('stack-2')!.fits(o, a)) },
+  { ...make({ id: 'stack-3-black', name: 'Stack 3 — black borders', category: 'trio', slots: 3, want: W(0.1, 1, 0.3), bias: tallPage, only: ['l'], build: buildStack(3, false, true) }), fits: (o, a) => 0.95 * (getTemplate('stack-3')!.fits(o, a)) },
   make({ id: 'stack-2-tight', name: 'Stack 2 tight', category: 'pair', slots: 2, want: W(0.15, 1, 0.4), bias: tallPage, only: ['l'], build: buildStack(2, true) }),
   make({ id: 'stack-3-tight', name: 'Stack 3 tight', category: 'trio', slots: 3, want: W(0.1, 1, 0.3), bias: tallPage, only: ['l'], build: buildStack(3, true) }),
   make({ id: 'pair-stacked', name: 'Pair stacked', category: 'pair', slots: 2, want: W(0.2, 1, 0.5), bias: tallPage, only: ['l'], build: buildPairStacked }),
@@ -444,8 +507,8 @@ export const getTemplate = (id: string | null | undefined): Template | undefined
 
 /** Template ids offered by each style for auto-fill (cover / panorama / overview are handled explicitly by autofill). */
 export const STYLE_TEMPLATE_IDS: Record<StyleId, string[]> = {
-  clean: ['inset-single', 'single-border', 'stack-2', 'stack-3', 'pair-side'],
-  stylized: ['matted-single', 'framed-portrait', 'print-mat', 'print-mat-3', 'print-mat-4', 'polaroid-on-photo', 'seamless-split', 'stack-2-tight', 'stack-3-tight', 'polaroid-scatter'],
+  clean: ['inset-single', 'single-border', 'stack-2', 'stack-3', 'stack-2-black', 'stack-3-black', 'pair-side'],
+  stylized: ['matted-single', 'framed-portrait', 'print-mat', 'print-mat-3', 'print-mat-4', 'stack-2-black', 'stack-3-black', 'polaroid-on-photo', 'seamless-split', 'stack-2-tight', 'stack-3-tight', 'polaroid-scatter'],
   carousel: ['stack-2', 'stack-3', 'matted-single', 'seamless-split', 'single-border', 'inset-single'],
   gallery: ['pair-stacked', 'pair-side', 'trio', 'triptych', 'grid-2x2', 'inset-single', 'single-border'],
   film: ['film-strip', 'film-strip-4', 'single-border', 'matted-single'],

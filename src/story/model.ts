@@ -1,5 +1,6 @@
 import { DEFAULT_CROP, type Crop } from '../core/geometry';
 import type { Photo } from '../core/images';
+import { isFontKey } from './fonts';
 
 export type { Crop, Photo };
 
@@ -8,7 +9,7 @@ export const ASPECTS: readonly Aspect[] = ['4:5', '1:1', '9:16', '16:9', '3:2', 
 export type StyleId = 'clean' | 'stylized' | 'carousel' | 'gallery' | 'film' | 'polaroid' | 'magazine';
 export const STYLE_IDS: readonly StyleId[] = ['clean', 'stylized', 'carousel', 'gallery', 'film', 'polaroid', 'magazine'];
 
-export type FontKey = 'sans' | 'serif' | 'mono' | 'display' | 'displaySans';
+export type FontKey = 'sans' | 'serif' | 'mono' | 'display' | 'displaySans' | 'italiana' | 'poiret' | 'josefin' | 'cormorant' | 'playfair' | 'montserrat' | 'bebas' | 'caveat' | 'dmmono' | 'marcellus';
 
 /** x,y,w,h are page fractions (x,w of page width; y,h of page height). The box is the OUTER box (frame included). x may be outside 0..1 for overflow/spread elements. */
 export type ElementBase = { id: string; x: number; y: number; w: number; h: number; rotation: number; z: number };
@@ -33,7 +34,7 @@ export type TextEl = ElementBase & {
   font: FontKey;
   /** Font size as a fraction of page HEIGHT. */
   size: number;
-  weight: 300 | 400 | 600 | 800;
+  weight: 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
   color: string;
   align: 'left' | 'center' | 'right';
   /** em */
@@ -406,7 +407,7 @@ function readElement(raw: unknown): El {
     const c = isObj(raw.crop) ? raw.crop : {};
     return { ...d, ...(raw as Partial<PhotoEl>), ...base, kind: 'photo', photoId: typeof raw.photoId === 'string' ? raw.photoId : null, crop: { zoom: num(c.zoom ?? 1, 'zoom'), cx: num(c.cx ?? 0.5, 'cx'), cy: num(c.cy ?? 0.5, 'cy') } };
   }
-  if (raw.kind === 'text') return { ...defaultTextEl(), ...(raw as Partial<TextEl>), ...base, kind: 'text', text: str(raw.text ?? '', 'text') };
+  if (raw.kind === 'text') return { ...defaultTextEl(), ...(raw as Partial<TextEl>), ...base, kind: 'text', text: str(raw.text ?? '', 'text'), font: isFontKey(raw.font) ? raw.font : 'sans' };
   if (raw.kind === 'rect') return { ...defaultRectEl(), ...(raw as Partial<RectEl>), ...base, kind: 'rect' };
   return fail(`Unknown element kind ${String(raw.kind)}`);
 }

@@ -103,7 +103,7 @@ A story is an ordered list of pages of one aspect, each a free canvas of element
 type Aspect = '4:5' | '1:1' | '9:16' | '16:9' | '3:2' | '2:3';
 type ElementBase = { id: string; x: number; y: number; w: number; h: number; rotation: number; z: number }; // x,y,w,h in page fractions (0..1) of page width/height; rotation degrees about center
 type PhotoEl = ElementBase & { kind: 'photo'; photoId: string | null; crop: Crop; frame: number; frameColor: string; shadow: boolean }; // frame = border thickness as fraction of page width; null photoId = placeholder slot
-type TextEl = ElementBase & { kind: 'text'; text: string; font: 'sans' | 'serif' | 'mono' | 'display'; size: number /* fraction of page height */; weight: 400 | 600 | 800; color: string; align: 'left' | 'center' | 'right'; letterSpacing: number; uppercase: boolean };
+type TextEl = ElementBase & { kind: 'text'; text: string; font: FontKey /* see src/story/fonts.ts */; size: number /* fraction of page height */; weight: 100..900 /* snapped to the family's weights */; color: string; align: 'left' | 'center' | 'right'; letterSpacing: number; uppercase: boolean };
 type El = PhotoEl | TextEl;
 type Page = { id: string; templateId: string | null; background: string; elements: El[]; duration: number /* video seconds */ };
 type Story = { version: 1; title: string; aspect: Aspect; background: string; pages: Page[]; photos: Photo[] /* library, without File objects when serialized */; video: { transition: 'none'|'crossfade'; transitionSeconds: number; kenBurns: boolean; audioPath: string | null; fitToMusic: boolean } };
@@ -176,7 +176,7 @@ Styles are template sets: **Carousel** (default: stack 2, stack 3, matted single
 - Bottom: **Page strip** of rendered thumbnails; drag to reorder; add blank, duplicate, delete; click to open.
 - Top bar: Save project / Open project (JSON with photo paths), Export ▾: "Images (JPEG, one per page)" to a chosen folder at 1080 or 2160 wide; "Video (MP4)" with options dialog: transition, Ken Burns, music file (optional), per-page duration default 3 s, "fit to music" which spreads music length over pages.
 
-Rendering for export and thumbnails uses one `renderPage(page, story, widthPx, getBitmap)` in `render.ts` (canvas 2D). The DOM editor must match it: same fonts (bundle no fonts; map to system stacks: sans = -apple-system/system-ui, serif = "New York", Georgia, serif, mono = ui-monospace, display = "Didot", "Bodoni 72", serif), same frame/shadow math.
+Rendering for export and thumbnails uses one `renderPage(page, story, widthPx, getBitmap)` in `render.ts` (canvas 2D). The DOM editor must match it: same fonts (system stacks kept for sans/serif/mono/display/displaySans; plus bundled OFL web fonts via @fontsource: Italiana (the Faroes cover look, default for Clean covers), Poiret One, Josefin Sans, Cormorant Garamond, Playfair Display, Montserrat, Bebas Neue, Caveat, DM Mono, Marcellus. `renderPage` awaits `ensureFonts` before drawing text. System stacks: sans = -apple-system/system-ui, serif = "New York", Georgia, serif, mono = ui-monospace, display = "Didot", "Bodoni 72", serif), same frame/shadow math.
 
 ## Mode 3: Borders (batch)
 

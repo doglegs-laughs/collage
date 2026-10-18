@@ -19,7 +19,7 @@ import { StoryEmpty, type MakeOpts } from './StoryEmpty';
 import { StoryInspector } from './StoryInspector';
 import { StoryStage, type DropHit } from './StoryStage';
 import { StoryTopbar } from './StoryTopbar';
-import { addTitlePage, addTitleToPage, newSeed } from './storyOps';
+import { addTitlePage, addTitleToPage, newSeed, setRoleFont } from './storyOps';
 import { useEditor } from './useEditor';
 import { useExporter } from './useExporter';
 import { usePageThumbs } from './usePageThumbs';
@@ -229,7 +229,7 @@ export function StoryView() {
             <StoryInspector
               story={story} subtitle={st.subtitle} page={page} pageIndex={pageIndex} extraPhotos={extraPhotos} onLayout={(o) => ed.pageLayout(o, extraPhotos)}
               onPage={(p, key) => st.mutate((s) => updatePage(s, pageIndex, p), key)}
-              onTitle={st.setTitle} onSubtitle={st.setSubtitle} onRecreate={recreate}
+              onTitle={st.setTitle} onSubtitle={st.setSubtitle} onRoleFont={(role, f) => st.mutate((s) => setRoleFont(s, role, f), `story-font-${role}`)} onRecreate={recreate}
               onToggleHidden={() => ed.toggleHidden()} onAddText={ed.addText} onAddSlot={ed.addSlot} onAddRect={ed.addRect} onAddTitlePage={addTitlePageNow} onAddTitleHere={addTitleHere}
             >
               <ElementInspector
