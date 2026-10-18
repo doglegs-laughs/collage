@@ -19,6 +19,7 @@ export type KeyActions = {
   goTo: (i: number) => void;
   save: () => void;
   open: () => void;
+  cycleLayout: (direction: 1 | -1) => void;
 };
 
 const isTyping = (t: EventTarget | null): boolean => {
@@ -50,6 +51,7 @@ export function useStoryKeys(actions: KeyActions) {
         else if (key === '[') { done(); a.zOrder(e.shiftKey ? 'back' : 'backward'); }
         return;
       }
+      if ((key === '[' || key === ']') && !a.hasSelection && !a.cropping) { done(); a.cycleLayout(key === ']' ? 1 : -1); return; }
       if (key === 'Escape') {
         if (a.cropping) a.exitCrop();
         else a.deselect();

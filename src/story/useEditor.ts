@@ -2,11 +2,10 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { clamp } from '../core/geometry';
 import type { Photo } from '../core/images';
 import {
-  addElement, addPage, addPhotos, aspectRatio, defaultPhotoEl, defaultRectEl, defaultTextEl, duplicatePage, duplicateElements, emptyPage, groupOf, movePageTo, removeElements,
+  addElement, addPage, addPhotos, aspectRatio, defaultPhotoEl, defaultRectEl, defaultTextEl, duplicatePage, duplicateElements, emptyPage, groupOf, movePageTo, photoIdsInUse, removeElements,
   removePage, reorderZ, replacePhoto, updateElements, type El, type Page, type Story, type ZMove,
 } from './model';
-import { shuffleLayout } from './autofill';
-import { newSeed } from './storyOps';
+import { applyLayout, nextLayout, pageSeed, type LayoutOption } from './layouts';
 import type { Overrides } from './useCanvasDrag';
 
 type Mutate = (fn: (s: Story) => Story, key?: string) => void;
@@ -133,16 +132,30 @@ export function useEditor(story: Story, mutate: Mutate) {
     mutate((s) => movePageTo(s, from, to).story);
     goTo(r.index);
   }, [mutate, goTo]);
-  const pageShuffle = useCallback(() => {
-    const at = live.current.pageIndex;
-    mutate((s) => shuffleLayout(s, at, newSeed()));
-    setSelRaw([]);
-  }, [mutate]);
+  /** Switch the current page (or spread) to a layout: one undo step. `extra` are library photos that may fill additional slots. */
+  const pageLayout = useCallback((option: LayoutOption, extra: Photo[] = []) => {
+    const { story: s, pageIndex: pi } = live.current;
+    const base = addPhotos(s, extra);
+    const r = applyLayout(base, pi, option, { seed: pageSeed(s, pi), extraPhotoIds: extra.map((p) => p.id) });
+    if (r.story === base) return;
+    // Library photos that ended up on no page do not belong in the story's photo list.
+    const used = photoIdsInUse(r.story);
+    const skip = new Set(extra.filter((p) => !used.has(p.id) && !s.photos.some((q) => q.id === p.id)).map((p) => p.id));
+    const next = skip.size ? { ...r.story, photos: r.story.photos.filter((p) => !skip.has(p.id)) } : r.story;
+    mutate(() => next);
+    goTo(r.pageIndex);
+  }, [mutate, goTo]);
+  /** Step to the previous / next layout with the same photos. */
+  const cycleLayout = useCallback((direction: 1 | -1) => {
+    const { story: s, pageIndex: pi } = live.current;
+    const option = nextLayout(s, pi, direction);
+    if (option) pageLayout(option);
+  }, [pageLayout]);
 
   return {
     pageIndex, page, selection, cropId, editingId, setCropId, setEditingId, goTo, select, jump, patch, patchSelected, commitOverrides,
     remove, duplicate, nudge, zOrder, addText, addRect, addSlot, dropPhoto, replaceSelectedPhoto,
-    pageAdd, pageDuplicate, pageDelete, pageMove, pageShuffle, pxPerPage,
+    pageAdd, pageDuplicate, pageDelete, pageMove, pageLayout, cycleLayout, pxPerPage,
   };
 }
 export type Editor = ReturnType<typeof useEditor>;

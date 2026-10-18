@@ -9,8 +9,9 @@ import { useToast } from '../ui/Toast';
 import { useVisible } from '../collage/useVisible';
 import { ElementInspector } from './ElementInspector';
 import { ExportStatus, ImagesDialog, VideoDialog } from './ExportDialogs';
+import { LayoutControl } from './LayoutControl';
 import { PageStrip } from './PageStrip';
-import { removePhotos, updatePage, type El, type Story } from './model';
+import { photoIdsInUse, removePhotos, updatePage, type El, type Story } from './model';
 import { StoryEmpty, type MakeOpts } from './StoryEmpty';
 import { StoryInspector } from './StoryInspector';
 import { StoryStage, type DropHit } from './StoryStage';
@@ -104,8 +105,15 @@ export function StoryView() {
     enabled: visible && panel === null, hasSelection: selection.length > 0, cropping: !!ed.cropId, pageCount: story.pages.length, pageIndex,
     remove: ed.remove, nudge: ed.nudge, duplicate: ed.duplicate, undo: history.undo, redo: history.redo, zOrder: ed.zOrder,
     deselect: () => ed.select([]), selectAll: () => ed.select(page?.elements.map((e) => e.id) ?? []),
-    exitCrop: () => ed.setCropId(null), goTo: ed.goTo, save: project.save, open: project.open,
+    exitCrop: () => ed.setCropId(null), goTo: ed.goTo, save: project.save, open: project.open, cycleLayout: ed.cycleLayout,
   });
+
+  /** Tray-selected photos that are on no page yet, in selection order: they fill extra slots when a layout wants more photos. */
+  const extraPhotos = useMemo<Photo[]>(() => {
+    const used = photoIdsInUse(story);
+    const byId = new Map(lib.photos.map((p) => [p.id, p]));
+    return tray.selected.flatMap((id) => (byId.has(id) && !used.has(id) ? [byId.get(id)!] : []));
+  }, [story, lib.photos, tray.selected]);
 
   const selectedEls = useMemo<El[]>(() => (page ? page.elements.filter((e) => selection.includes(e.id)) : []), [page, selection]);
 
@@ -126,7 +134,7 @@ export function StoryView() {
           <div className="story-main">
             <div className="story-toolbar">
               <Button variant="soft" onClick={shuffle} title="Lay the whole story out again with a new random arrangement" data-testid="story-shuffle">Shuffle</Button>
-              <Button onClick={ed.pageShuffle} title="Try a different layout for this page" data-testid="shuffle-layout">Shuffle layout</Button>
+              <LayoutControl story={story} pageIndex={pageIndex} extraPhotos={extraPhotos} onApply={(o) => ed.pageLayout(o, extraPhotos)} onCycle={ed.cycleLayout} />
               <Button onClick={history.undo} disabled={!history.canUndo} title="Undo (⌘Z)" data-testid="story-undo">Undo</Button>
               <Button onClick={history.redo} disabled={!history.canRedo} title="Redo (⇧⌘Z)" data-testid="story-redo">Redo</Button>
               <span className="story-pagelabel" data-testid="page-label">Page {pageIndex + 1} of {story.pages.length}</span>
@@ -146,7 +154,7 @@ export function StoryView() {
               onReplace={() => void replacePhoto()} onRemove={ed.remove} onDuplicate={ed.duplicate}
             />
             <StoryInspector
-              story={story} subtitle={st.subtitle} page={page}
+              story={story} subtitle={st.subtitle} page={page} pageIndex={pageIndex} extraPhotos={extraPhotos} onLayout={(o) => ed.pageLayout(o, extraPhotos)}
               onPage={(p, key) => st.mutate((s) => updatePage(s, pageIndex, p), key)}
               onTitle={st.setTitle} onSubtitle={st.setSubtitle} onRecreate={recreate}
               onAddText={ed.addText} onAddSlot={ed.addSlot} onAddRect={ed.addRect}
