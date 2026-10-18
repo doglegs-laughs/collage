@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { Button, Segmented, Slider } from '../ui/Controls';
+import type { Photo } from '../core/images';
 import { ColorInput, Field } from './fields';
+import { LayoutPicker } from './LayoutPicker';
+import type { LayoutOption } from './layouts';
 import { ASPECTS, type Aspect, type Page, type StyleId, type Story } from './model';
 
 type Change = { style?: StyleId; aspect?: Aspect };
@@ -8,6 +11,9 @@ type Props = {
   story: Story;
   subtitle: string;
   page: Page;
+  pageIndex: number;
+  extraPhotos: Photo[];
+  onLayout: (o: LayoutOption) => void;
   onPage: (p: Partial<Page>, key: string) => void;
   onTitle: (t: string) => void;
   onSubtitle: (t: string) => void;
@@ -30,6 +36,9 @@ export function StoryInspector(p: Props) {
     <>
       <section className="section" data-testid="inspector-page">
         <div className="section-head"><h2 className="section-title">Page</h2></div>
+        <Field label="Layout">
+          <LayoutPicker story={story} pageIndex={p.pageIndex} extraPhotos={p.extraPhotos} onApply={p.onLayout} testId="layout-section" />
+        </Field>
         <Field label="Background">
           <ColorInput label="Page background" value={page.background} onChange={(v) => p.onPage({ background: v }, `bg-${page.id}`)} />
         </Field>
