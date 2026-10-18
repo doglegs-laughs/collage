@@ -146,6 +146,9 @@ export type ApplyOpts = {
   seed: number;
   /** Photos (already in `story.photos`) to fill extra slots with, in order, before leaving placeholders. Ones already on the page are skipped. */
   extraPhotoIds?: string[];
+  /** Gutter and outer margin (fractions of page width) handed to the arrangement; the arrangement's defaults when absent. */
+  gap?: number;
+  margin?: number;
 };
 
 const aspectOf = (e: PhotoEl, A: number) => (e.w * A) / Math.max(1e-9, e.h);
@@ -208,7 +211,7 @@ export function applyLayout(story: Story, pageIndex: number, option: LayoutTarge
 
   const fresh: Page[] = [];
   for (const l of layouts) {
-    const res = t.layout(story.aspect, l.photos.map((id) => photoOf(story, id)) as Photo[], { title: ctx.title, subtitle: ctx.subtitle, caption: ctx.title, seed: opts.seed });
+    const res = t.layout(story.aspect, l.photos.map((id) => photoOf(story, id)) as Photo[], { title: ctx.title, subtitle: ctx.subtitle, caption: ctx.title, seed: opts.seed, ...(opts.gap !== undefined ? { gap: opts.gap } : {}), ...(opts.margin !== undefined ? { margin: opts.margin } : {}) });
     res.pages.forEach((els, i) => {
       const k = fresh.length;
       const old = ctx.pages[k] ?? lead;
