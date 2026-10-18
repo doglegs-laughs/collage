@@ -22,6 +22,8 @@ mac:
       to: ffmpeg/ffmpeg
 win:
   icon: build/icon.png
+  # Applies to the zip; nsis sets its own name below.
+  artifactName: Collage-win-x64.${ext}
   target:
     - target: nsis
       arch: [x64]
@@ -35,5 +37,3 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   artifactName: Collage-Setup-${version}-x64.${ext}
-zip:
-  artifactName: Collage-win-x64.${ext}
