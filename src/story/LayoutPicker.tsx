@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { getPreviewBitmap, type Photo } from '../core/images';
-import { applyLayout, layoutOptions, layoutSignature, pageSeed, type LayoutOption } from './layouts';
+import { GROUP_LABELS, GROUP_ORDER, type Group } from './arrangements';
+import { finishLabel, FINISH_INFO, type FinishId } from './finishes';
+import { applyLayout, currentOf, layoutOptions, layoutSignature, pageSeed, type LayoutOption, type LayoutTarget } from './layouts';
 import { addPhotos, aspectRatio, groupOf, type Story } from './model';
 import { renderPage } from './render';
 
@@ -45,14 +47,14 @@ function useOptionThumbs(story: Story, pageIndex: number, options: LayoutOption[
   const latest = useRef(story);
   latest.current = story;
   const sig = useMemo(() => layoutSignature(story, pageIndex) + '|' + extra.map((p) => p.id).join(','), [story, pageIndex, extra]);
-  const keyOf = (o: LayoutOption) => `${o.id}|${sig}`;
+  const keyOf = (o: LayoutOption) => `${o.id}|${o.finish ?? ''}|${sig}`;
 
   useEffect(() => {
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       for (const o of options) {
         if (cancelled) return;
-        const key = `${o.id}|${sig}`;
+        const key = keyOf(o);
         if (cache.has(key)) continue;
         let job = inflight.get(key);
         if (!job) {
@@ -71,7 +73,7 @@ function useOptionThumbs(story: Story, pageIndex: number, options: LayoutOption[
       }
     }, 30);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [sig, options, pageIndex, extra]);
+  }, [sig, options, pageIndex, extra]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const out = new Map<string, string>();
   for (const o of options) {
@@ -86,67 +88,89 @@ type Props = {
   pageIndex: number;
   /** Library photos not on any page yet; used to fill extra slots in "more photos" layouts. */
   extraPhotos: Photo[];
-  onApply: (option: LayoutOption) => void;
+  /** An arrangement tile or a finish chip was chosen. Chips keep the picker open (`keepOpen`). */
+  onApply: (target: LayoutTarget, how?: { keepOpen?: boolean }) => void;
   /** Escape closes (popover use). */
   onClose?: () => void;
   autoFocus?: boolean;
   testId?: string;
 };
 
-/** Grid of layout thumbnails for the page. Arrows move, Enter applies, Esc closes. */
+type GroupKey = Group | 'more';
+/** Sections the user opened or closed, kept for the session (a section holding the current layout is open until the user says otherwise). */
+const toggled = new Map<GroupKey, boolean>();
+
+/** Finish chips for the current arrangement, then arrangement tiles in collapsible groups. Tab moves between the chips and the tiles, arrows move within, Enter applies, Esc closes. */
 export function LayoutPicker({ story, pageIndex, extraPhotos, onApply, onClose, autoFocus, testId = 'layout-picker' }: Props) {
   const options = useMemo(() => layoutOptions(story, pageIndex), [story, pageIndex]);
-  const thumbs = useOptionThumbs(story, pageIndex, options, extraPhotos);
+  const cur = useMemo(() => currentOf(story, pageIndex), [story, pageIndex]);
+  const [ver, rerender] = useState(0);
+  const isOpen = (key: GroupKey, items: LayoutOption[]) => toggled.get(key) ?? items.some((o) => o.current);
+  const sections = useMemo(() => [
+    ...GROUP_ORDER.map((g) => ({ key: g as GroupKey, label: GROUP_LABELS[g], items: options.filter((o) => !o.slotsDiffer && o.group === g) })),
+    { key: 'more' as GroupKey, label: 'More or fewer photos', items: options.filter((o) => o.slotsDiffer) },
+  ].filter((x) => x.items.length > 0), [options]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const shown = useMemo(() => sections.filter((x) => isOpen(x.key, x.items)).flatMap((x) => x.items), [sections, ver]);
+  const thumbs = useOptionThumbs(story, pageIndex, shown, extraPhotos);
   const root = useRef<HTMLDivElement>(null);
-  const [active, setActive] = useState(() => Math.max(0, options.findIndex((o) => o.current)));
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [chipFocus, setChipFocus] = useState<FinishId | null>(null);
+  const activeTile = shown.find((o) => o.id === activeId) ?? shown.find((o) => o.current) ?? shown[0];
   const ar = aspectRatio(story.aspect);
-  const same = options.filter((o) => !o.slotsDiffer);
-  const differ = options.filter((o) => o.slotsDiffer);
+  const finishes = cur?.arrangement.finishes.length && cur.arrangement.finishes.length > 1 ? cur.arrangement.finishes : [];
 
   useEffect(() => {
-    // Opens scrolled to the top (the best fits); the current layout is marked wherever it sits.
-    if (autoFocus) root.current?.querySelectorAll<HTMLElement>('[data-layout-tile]')[Math.max(0, options.findIndex((o) => o.current))]?.focus({ preventScroll: true });
+    if (autoFocus) root.current?.querySelector<HTMLElement>('[data-layout-tile][tabindex="0"]')?.focus({ preventScroll: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const focusTile = (i: number) => {
-    setActive(i);
-    const el = root.current?.querySelectorAll<HTMLElement>('[data-layout-tile]')[i];
-    el?.focus();
-    el?.scrollIntoView({ block: 'nearest' });
+  const tilesEl = () => [...(root.current?.querySelectorAll<HTMLElement>('[data-layout-tile]') ?? [])];
+  const focusTile = (el: HTMLElement | undefined) => {
+    if (!el) return;
+    setActiveId(el.dataset.optionId ?? null);
+    el.focus();
+    el.scrollIntoView({ block: 'nearest' });
   };
   const onKeyDown = (e: KeyboardEvent) => {
-    const tiles = [...(root.current?.querySelectorAll<HTMLElement>('[data-layout-tile]') ?? [])];
-    const at = tiles.findIndex((t) => t === document.activeElement);
     if (e.key === 'Escape' && onClose) { e.preventDefault(); e.stopPropagation(); onClose(); return; }
+    const t = e.target as HTMLElement;
+    if (t.dataset.finishChip !== undefined) {
+      const chips = [...(root.current?.querySelectorAll<HTMLElement>('[data-finish-chip]') ?? [])];
+      const at = chips.indexOf(t);
+      const to = e.key === 'ArrowRight' ? Math.min(chips.length - 1, at + 1) : e.key === 'ArrowLeft' ? Math.max(0, at - 1) : e.key === 'Home' ? 0 : e.key === 'End' ? chips.length - 1 : -1;
+      if (to >= 0) { e.preventDefault(); e.stopPropagation(); chips[to].focus(); }
+      return;
+    }
+    const tiles = tilesEl();
+    const at = tiles.indexOf(document.activeElement as HTMLElement);
     if (!e.key.startsWith('Arrow') || at < 0) return;
     e.preventDefault();
     e.stopPropagation();
-    if (e.key === 'ArrowRight') return focusTile(Math.min(tiles.length - 1, at + 1));
-    if (e.key === 'ArrowLeft') return focusTile(Math.max(0, at - 1));
+    if (e.key === 'ArrowRight') return focusTile(tiles[Math.min(tiles.length - 1, at + 1)]);
+    if (e.key === 'ArrowLeft') return focusTile(tiles[Math.max(0, at - 1)]);
     const down = e.key === 'ArrowDown';
-    const cur = tiles[at].getBoundingClientRect();
-    const rects = tiles.map((t) => t.getBoundingClientRect());
-    const rows = rects.map((r, i) => ({ r, i })).filter(({ r }) => (down ? r.top > cur.top + 4 : r.top < cur.top - 4));
+    const curR = tiles[at].getBoundingClientRect();
+    const rects = tiles.map((x) => x.getBoundingClientRect());
+    const rows = rects.map((r, i) => ({ r, i })).filter(({ r }) => (down ? r.top > curR.top + 4 : r.top < curR.top - 4));
     if (!rows.length) return;
     const rowTop = down ? Math.min(...rows.map(({ r }) => r.top)) : Math.max(...rows.map(({ r }) => r.top));
     const inRow = rows.filter(({ r }) => Math.abs(r.top - rowTop) < 4);
-    inRow.sort((a, b) => Math.abs(a.r.left - cur.left) - Math.abs(b.r.left - cur.left));
-    focusTile(inRow[0].i);
+    inRow.sort((a, b) => Math.abs(a.r.left - curR.left) - Math.abs(b.r.left - curR.left));
+    focusTile(tiles[inRow[0].i]);
   };
 
   if (options.length === 0) return <p className="hint lp-empty">This page has no photos to lay out.</p>;
   const tile = (o: LayoutOption) => {
-    const i = options.indexOf(o);
-    const shown = Math.min(o.pages, MAX_SHOWN_PAGES);
+    const sh = Math.min(o.pages, MAX_SHOWN_PAGES);
     const url = thumbs.get(o.id);
     return (
       <button
-        key={o.id} type="button" className={`lp-tile ${o.current ? 'current' : ''} ${shown > 1 ? 'wide' : ''}`}
-        data-layout-tile data-testid="layout-option" data-option-id={o.id} data-current={o.current} title={o.name}
-        tabIndex={i === active ? 0 : -1} aria-pressed={o.current} aria-label={o.name}
-        onFocus={() => setActive(i)} onClick={() => onApply(o)}
+        key={o.id} type="button" className={`lp-tile ${o.current ? 'current' : ''} ${sh > 1 ? 'wide' : ''}`}
+        data-layout-tile data-testid="layout-option" data-option-id={o.id} data-current={o.current} data-finish={o.finish ?? ''} title={o.name}
+        tabIndex={o.id === activeTile?.id ? 0 : -1} aria-pressed={o.current} aria-label={o.name}
+        onFocus={() => setActiveId(o.id)} onClick={() => onApply({ arrangement: o.arrangement, finish: o.finish })}
       >
-        <span className="lp-thumb" style={{ aspectRatio: String(shown * ar) }}>
+        <span className="lp-thumb" style={{ aspectRatio: String(sh * ar) }}>
           {url ? <img src={url} alt="" draggable={false} /> : <span className="lp-wait" />}
         </span>
         <span className="lp-name">{o.name}</span>
@@ -156,14 +180,42 @@ export function LayoutPicker({ story, pageIndex, extraPhotos, onApply, onClose, 
   };
   return (
     <div ref={root} className="lp" data-testid={testId} role="group" aria-label="Page layouts" onKeyDown={onKeyDown}>
-      <h3 className="lp-head">Same photos</h3>
-      <div className="lp-grid">{same.map(tile)}</div>
-      {differ.length > 0 && (
-        <>
-          <h3 className="lp-head">More or fewer photos</h3>
-          <div className="lp-grid">{differ.map(tile)}</div>
-        </>
+      {cur && (
+        <div className="lp-finish">
+          <h3 className="lp-head">Finish</h3>
+          {finishes.length > 0 ? (
+            <div className="lp-chips" role="radiogroup" aria-label="Finish" data-testid="finish-chips">
+              {finishes.map((f: FinishId) => (
+                <button
+                  key={f} type="button" role="radio" className={`lp-chip ${cur.finish === f ? 'on' : ''}`} aria-checked={cur.finish === f} title={FINISH_INFO[f].hint}
+                  data-finish-chip data-testid="finish-chip" data-finish={f} tabIndex={(chipFocus && finishes.includes(chipFocus) ? chipFocus : cur.finish ?? finishes[0]) === f ? 0 : -1} onFocus={() => setChipFocus(f)}
+                  onClick={() => onApply({ arrangement: cur.arrangement.id, finish: f }, { keepOpen: true })}
+                >{finishLabel(f)}</button>
+              ))}
+            </div>
+          ) : (
+            <p className="hint lp-own">{cur.arrangement.name} has its own look.</p>
+          )}
+        </div>
       )}
+      {sections.map((x) => {
+        const open = isOpen(x.key, x.items);
+        return (
+          <section key={x.key} className="lp-group" data-testid="layout-group" data-group={x.key} data-open={open}>
+            <h3 className="lp-head lp-group-head">
+              <button
+                type="button" className="lp-toggle" aria-expanded={open} data-testid="layout-group-toggle"
+                onClick={() => { toggled.set(x.key, !open); rerender((n) => n + 1); }}
+              >
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m7 5 5 5-5 5" /></svg>
+                <span>{x.label}</span>
+                <span className="lp-count">{x.items.length}</span>
+              </button>
+            </h3>
+            {open && <div className="lp-grid">{x.items.map(tile)}</div>}
+          </section>
+        );
+      })}
     </div>
   );
 }

@@ -6,7 +6,7 @@ import {
   removePage, reorderZ, replacePhoto, updateElements, type El, type Page, type Story, type ZMove,
 } from './model';
 import { moveToOwnPage } from './split';
-import { applyLayout, nextLayout, pageSeed, type LayoutOption } from './layouts';
+import { applyLayout, nextFinish, nextLayout, pageSeed, type LayoutTarget } from './layouts';
 import type { Overrides } from './useCanvasDrag';
 
 type Mutate = (fn: (s: Story) => Story, key?: string) => void;
@@ -153,7 +153,7 @@ export function useEditor(story: Story, mutate: Mutate) {
     return r.pageIndex;
   }, [mutate, goTo]);
   /** Switch the current page (or spread) to a layout: one undo step. `extra` are library photos that may fill additional slots. */
-  const pageLayout = useCallback((option: LayoutOption, extra: Photo[] = []) => {
+  const pageLayout = useCallback((option: LayoutTarget, extra: Photo[] = []) => {
     const { story: s, pageIndex: pi } = live.current;
     const base = addPhotos(s, extra);
     const r = applyLayout(base, pi, option, { seed: pageSeed(s, pi), extraPhotoIds: extra.map((p) => p.id) });
@@ -171,11 +171,17 @@ export function useEditor(story: Story, mutate: Mutate) {
     const option = nextLayout(s, pi, direction);
     if (option) pageLayout(option);
   }, [pageLayout]);
+  /** Step to the previous / next finish of the page's arrangement. */
+  const cycleFinish = useCallback((direction: 1 | -1) => {
+    const { story: s, pageIndex: pi } = live.current;
+    const target = nextFinish(s, pi, direction);
+    if (target) pageLayout(target);
+  }, [pageLayout]);
 
   return {
     pageIndex, page, selection, cropId, editingId, setCropId, setEditingId, goTo, select, jump, patch, patchSelected, commitOverrides,
     remove, duplicate, nudge, zOrder, addText, addRect, addSlot, dropPhoto, replaceSelectedPhoto,
-    pageAdd, pageDuplicate, pageDelete, pageMove, toggleHidden, moveOwn, pageLayout, cycleLayout, pxPerPage,
+    pageAdd, pageDuplicate, pageDelete, pageMove, toggleHidden, moveOwn, pageLayout, cycleLayout, cycleFinish, pxPerPage,
   };
 }
 export type Editor = ReturnType<typeof useEditor>;

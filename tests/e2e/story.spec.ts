@@ -251,50 +251,62 @@ test('layout picker: choose, cycle with arrows, undo', async () => {
   const original = (await name.textContent())!;
   const photoEls = page.locator('.story-page [data-testid="story-el-photo"]');
 
-  // Open the picker: several options, Full screen photo first.
+  // Open the picker: the group holding the current layout is open, the others are collapsed headers.
   await page.getByTestId('layout-button').click();
   const pop = page.getByTestId('layout-popover');
   await expect(pop).toBeVisible();
   const tiles = pop.getByTestId('layout-option');
+  await expect(pop.locator('[data-testid="layout-group"][data-group="single"]')).toHaveAttribute('data-open', 'true');
+  await expect(pop.locator('[data-testid="layout-group"][data-group="special"]')).toHaveAttribute('data-open', 'false');
+  await expect(tiles.first()).toHaveAttribute('data-option-id', 'single');
+  await expect(pop.locator('[data-testid="layout-option"][data-current="true"]')).toHaveCount(1);
+  // Opening the other groups shows more arrangements.
+  for (const t of await pop.getByTestId('layout-group-toggle').all()) if ((await t.getAttribute('aria-expanded')) === 'false') await t.click();
   expect(await tiles.count()).toBeGreaterThanOrEqual(3);
-  await expect(tiles.first()).toHaveAttribute('data-option-id', 'single-bleed');
-  await expect(tiles.first()).toContainText('Full screen photo');
   // Thumbnails render progressively.
   await expect.poll(() => pop.locator('.lp-thumb img').count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(3);
   await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(shots, 'layout-picker.png') });
 
-  // Apply Full screen.
-  await tiles.first().click();
-  await expect(pop).toHaveCount(0);
+  // The Full bleed finish chip applies at once and keeps the picker open and the arrangement.
+  const chips = pop.getByTestId('finish-chip');
+  await expect(chips).toHaveText(['Plain', 'Black borders', 'Thick frame', 'Shadow', 'Print mat', 'Full bleed']);
+  await chips.filter({ hasText: 'Full bleed' }).click();
+  await expect(pop).toBeVisible();
   await expect(name).toHaveText('Full screen photo');
   await expect(photoEls).toHaveCount(1);
   const box = await page.getByTestId('story-page').boundingBox();
   const el = await photoEls.first().locator('.se-photo').boundingBox();
   expect(Math.abs(el!.width - box!.width)).toBeLessThan(3);
+  await page.keyboard.press('Escape');
+  await expect(pop).toHaveCount(0);
 
-  // Cycle with the arrows; the name changes and wraps.
+  // Cycle with the arrows; the name changes and wraps. A full-bleed single has no counterpart elsewhere, so the finish falls back to the default.
   await page.getByTestId('layout-next').click();
   expect(await name.textContent()).not.toBe('Full screen photo');
   await page.getByTestId('layout-prev').click();
-  await expect(name).toHaveText('Full screen photo');
+  await expect(name).toHaveText('Single');
   await page.getByTestId('layout-prev').click();
-  expect(await name.textContent()).not.toBe('Full screen photo');
-  // Bracket keys cycle too when nothing is selected.
+  expect(await name.textContent()).not.toBe('Single');
+  // Bracket keys cycle arrangements too when nothing is selected; the braces step the finish.
   await page.keyboard.press(']');
-  await expect(name).toHaveText('Full screen photo');
+  await expect(name).toHaveText('Single');
+  await page.keyboard.press('}');
+  await expect(name).toHaveText('Single · Black borders');
+  await page.keyboard.press('{');
+  await expect(name).toHaveText('Single');
 
   // Escape closes the picker without changing anything; Enter applies the focused tile.
   await page.getByTestId('layout-button').click();
   await expect(pop).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(pop).toHaveCount(0);
-  await expect(name).toHaveText('Full screen photo');
+  await expect(name).toHaveText('Single');
   await page.getByTestId('layout-button').click();
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   await expect(pop).toHaveCount(0);
-  await expect(name).not.toHaveText('Full screen photo');
+  await expect(name).not.toHaveText('Single');
 
   // The Page panel shows the same picker with the current layout marked.
   const section = page.getByTestId('layout-section');
@@ -302,9 +314,89 @@ test('layout picker: choose, cycle with arrows, undo', async () => {
 
   // Undo steps back one layout at a time, all the way to the original.
   await page.keyboard.press('ControlOrMeta+z');
-  await expect(name).toHaveText('Full screen photo');
-  for (let i = 0; i < 8 && (await name.textContent()) !== original; i++) await page.keyboard.press('ControlOrMeta+z');
+  await expect(name).toHaveText('Single');
+  for (let i = 0; i < 12 && (await name.textContent()) !== original; i++) await page.keyboard.press('ControlOrMeta+z');
   await expect(name).toHaveText(original);
+});
+
+test('layout picker: finish chips and arrangements are separate axes', async () => {
+  test.setTimeout(180_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  await stubDialogs({ photos, folder, video: path.join(folder, 'x.mp4') });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(page.getByTestId('view-story').locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  // Three landscapes (photos 1, 3 and 7) make one stack page.
+  await page.getByTestId('view-story').getByRole('button', { name: 'None', exact: true }).click();
+  for (const i of [0, 2, 6]) await page.getByTestId('view-story').locator('.tray-pick').nth(i).click();
+  await page.getByTestId('make-story').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  await imagesLoaded().catch(() => {});
+  const name = page.getByTestId('layout-name');
+  const photoEls = page.locator('.story-page [data-testid="story-el-photo"]:not([data-ghost])');
+  const frames = () => photoEls.locator('.se-photo').evaluateAll((els) => els.map((e) => ({ bg: getComputedStyle(e).backgroundColor, r: e.getBoundingClientRect().toJSON() })));
+  const pop = page.getByTestId('layout-popover');
+  const chip = (label: string) => pop.getByTestId('finish-chip').filter({ hasText: label });
+
+  await page.getByTestId('layout-button').click();
+  await expect(pop).toBeVisible();
+  await expect(pop.getByTestId('finish-chips')).toBeVisible();
+  await expect(pop.getByTestId('finish-chip')).toHaveText(['Plain', 'Tight', 'Black borders', 'Print mat']);
+  await chip('Plain').click();
+  await expect(name).toHaveText(/^Stack 3$/);
+  await expect(photoEls).toHaveCount(3);
+  const plain = await frames();
+
+  // Black borders: same boxes, black frames, label updates, picker stays open on the same arrangement.
+  await chip('Black borders').click();
+  await expect(name).toHaveText('Stack 3 · Black borders');
+  await expect(pop).toBeVisible();
+  await expect(chip('Black borders')).toHaveAttribute('aria-checked', 'true');
+  const black = await frames();
+  expect(black.map((f) => f.bg)).toEqual(['rgb(0, 0, 0)', 'rgb(0, 0, 0)', 'rgb(0, 0, 0)']);
+  black.forEach((f, i) => { for (const k of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(f.r[k] - plain[i].r[k])).toBeLessThan(1.5); });
+  await expect(pop.locator('[data-testid="layout-option"][data-current="true"]')).toHaveAttribute('data-option-id', 'stack-3');
+  await expect(pop.locator('[data-testid="layout-option"][data-current="true"]')).toHaveAttribute('data-finish', 'black');
+
+  // Print mat: photos sit inside a paper rectangle.
+  await chip('Print mat').click();
+  await expect(name).toHaveText('Stack 3 · Print mat');
+  const paper = await page.locator('.story-page [data-testid="story-el-rect"] .se-rect').first().boundingBox();
+  const matted = await frames();
+  expect(paper).not.toBeNull();
+  for (const f of matted) {
+    expect(f.r.x).toBeGreaterThan(paper!.x);
+    expect(f.r.x + f.r.width).toBeLessThan(paper!.x + paper!.width);
+    expect(f.r.y).toBeGreaterThan(paper!.y);
+    expect(f.r.y + f.r.height).toBeLessThan(paper!.y + paper!.height);
+  }
+  // Thumbnails of the arrangements are drawn in the current finish.
+  await expect.poll(() => pop.locator('.lp-thumb img').count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: path.join(shots, 'layout-two-axis.png') });
+
+  // Keyboard: Tab from the chips reaches the tiles, arrows stay inside each row.
+  await chip('Print mat').focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(chip('Black borders')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(pop.locator('[data-layout-tile][tabindex="0"], .lp-toggle').first()).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(pop).toHaveCount(0);
+
+  // Cycling arrangements keeps the finish.
+  await page.getByTestId('layout-next').click();
+  await expect(name).toHaveText(/ · Print mat$/);
+  expect(await name.textContent()).not.toBe('Stack 3 · Print mat');
+  await page.getByTestId('layout-prev').click();
+  await expect(name).toHaveText('Stack 3 · Print mat');
+
+  // Undo: one step per change.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(name).toHaveText(/ · Print mat$/);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(name).toHaveText('Stack 3 · Print mat');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(name).toHaveText('Stack 3 · Black borders');
 });
 
 test('move a photo to its own page: inspector, undo, context menu, shortcut', async () => {
@@ -666,7 +758,10 @@ test('fonts: Italiana loads, inspector font change re-renders thumbnails, story 
   const tiles: string[] = [];
   const shootLayout = async (id: string) => {
     await page.getByTestId('layout-button').click();
-    await page.getByTestId('layout-popover').locator(`[data-option-id="${id}"]`).click();
+    const pop = page.getByTestId('layout-popover');
+    const group = pop.locator('[data-testid="layout-group"][data-group="cover"] [data-testid="layout-group-toggle"]');
+    if ((await group.getAttribute('aria-expanded')) === 'false') await group.click();
+    await pop.locator(`[data-option-id="${id}"]`).click();
     await page.keyboard.press('Escape').catch(() => {});
     await imagesLoaded().catch(() => {});
     await page.waitForTimeout(500);

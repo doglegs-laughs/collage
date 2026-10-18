@@ -148,6 +148,10 @@ Model additions: `RectEl = ElementBase & { kind: 'rect'; fill: string; stroke: s
 
 Default gutter for Carousel = 0.025 of page width. Templates take `gap` and `margin` separately.
 
+### Arrangement x finish (user decision)
+
+The layout picker has two axes. **Arrangement** (`arrangements.ts`) says where photos go (Stack 2/3, pair, trio, triptych, grids, single, covers, spreads, specials). **Finish** (`finishes.ts`) says how they are presented: Plain, Tight (hairline gutters), Black borders (thin frame, same geometry), Print mat (group on a paper mat), and for singles Thick frame, Shadow and Full bleed. `Page.templateId` holds the arrangement id and `Page.finish` the finish; old ids (`stack-3-tight`, `print-mat`, `matted-single`...) map through `TEMPLATE_ALIASES` when a story is read. Arrows and `[` `]` step arrangements keeping the finish; `{` `}` step finishes.
+
 ### Two headline styles (user decision)
 
 Offer exactly two primary styles up front, others secondary ("More styles"):

@@ -20,6 +20,7 @@ export type KeyActions = {
   save: () => void;
   open: () => void;
   cycleLayout: (direction: 1 | -1) => void;
+  cycleFinish: (direction: 1 | -1) => void;
   moveToOwnPage: () => void;
   toggleHidden: () => void;
 };
@@ -56,6 +57,7 @@ export function useStoryKeys(actions: KeyActions) {
         return;
       }
       if ((key === '[' || key === ']') && !a.hasSelection && !a.cropping) { done(); a.cycleLayout(key === ']' ? 1 : -1); return; }
+      if ((key === '{' || key === '}') && !a.hasSelection && !a.cropping) { done(); a.cycleFinish(key === '}' ? 1 : -1); return; }
       if (key === 'Escape') {
         if (a.cropping) a.exitCrop();
         else a.deselect();

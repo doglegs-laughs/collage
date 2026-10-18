@@ -3,7 +3,7 @@ import { Button, Segmented, Slider } from '../ui/Controls';
 import type { Photo } from '../core/images';
 import { Check, ColorInput, Field } from './fields';
 import { LayoutPicker } from './LayoutPicker';
-import type { LayoutOption } from './layouts';
+import type { LayoutTarget } from './layouts';
 import { hasTitleEl, roleFont } from './storyOps';
 import { FontSelect } from './FontSelect';
 import { ASPECTS, hiddenCount, type Aspect, type FontKey, type Page, type StyleId, type Story } from './model';
@@ -15,7 +15,7 @@ type Props = {
   page: Page;
   pageIndex: number;
   extraPhotos: Photo[];
-  onLayout: (o: LayoutOption) => void;
+  onLayout: (o: LayoutTarget) => void;
   onPage: (p: Partial<Page>, key: string) => void;
   onTitle: (t: string) => void;
   onSubtitle: (t: string) => void;

@@ -47,7 +47,7 @@ describe('cover variants', () => {
     const story = { ...emptyStory('4:5'), title: 'Faroes', pages, photos };
     const o = layoutOptions(story, 0);
     expect(o.slice(0, 5).map((x) => x.id)).toEqual(expect.arrayContaining(['cover', 'cover-border', 'cover-border-below', 'cover-mat']));
-    expect(o.filter((x) => x.templateId.startsWith('cover')).length).toBeGreaterThanOrEqual(5);
+    expect(o.filter((x) => x.arrangement.startsWith('cover')).length).toBeGreaterThanOrEqual(5);
     const noTitle = layoutOptions({ ...story, title: '', pages: makeStory(photos, { style: 'clean', aspect: '4:5', seed: 1 }) }, 0);
     expect(noTitle.some((x) => x.id.startsWith('cover'))).toBe(false);
   });
@@ -79,9 +79,9 @@ describe('black-bordered stacks', () => {
     const photos = makePhotos(3, 2, [[4000, 3000]]);
     const t = getTemplate('stack-3-black')!;
     const els = t.layout('4:5', photos).pages[0].map((e, i) => ({ ...e, id: `e${i}` }));
-    const story = { ...emptyStory('4:5'), photos, pages: [{ id: 'p0', templateId: 'stack-3-black', background: '#ffffff', duration: 3, elements: els }] };
+    const story = { ...emptyStory('4:5'), photos, pages: [{ id: 'p0', templateId: 'stack-3', finish: 'black' as const, background: '#ffffff', duration: 3, elements: els }] };
     const r = moveToOwnPage(story, 0, 'e0')!;
     expect(r).not.toBeNull();
-    expect(r.story.pages.map((p) => p.templateId)).toContain('stack-2-black');
+    expect(r.story.pages.map((p) => [p.templateId, p.finish])).toContainEqual(['stack-2', 'black']);
   });
 });

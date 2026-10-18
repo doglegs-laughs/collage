@@ -171,7 +171,7 @@ export function StoryView() {
     enabled: visible && panel === null, hasSelection: selection.length > 0, cropping: !!ed.cropId, pageCount: story.pages.length, pageIndex,
     remove: ed.remove, nudge: ed.nudge, duplicate: ed.duplicate, undo: history.undo, redo: history.redo, zOrder: ed.zOrder,
     deselect: () => ed.select([]), selectAll: () => ed.select(page?.elements.map((e) => e.id) ?? []),
-    exitCrop: () => ed.setCropId(null), goTo: ed.goTo, save: project.save, open: project.open, cycleLayout: ed.cycleLayout,
+    exitCrop: () => ed.setCropId(null), goTo: ed.goTo, save: project.save, open: project.open, cycleLayout: ed.cycleLayout, cycleFinish: ed.cycleFinish,
     toggleHidden: () => ed.toggleHidden(),
     moveToOwnPage: () => { if (selectedEls.length === 1 && selectedEls[0].kind === 'photo') moveOwn(); },
   });

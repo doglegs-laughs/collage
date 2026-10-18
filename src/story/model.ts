@@ -1,6 +1,7 @@
 import { DEFAULT_CROP, type Crop } from '../core/geometry';
 import type { Photo } from '../core/images';
 import { isFontKey } from './fonts';
+import { isFinishId, migrateTemplate, type FinishId } from './templateAliases';
 
 export type { Crop, Photo };
 
@@ -57,7 +58,10 @@ export type ElKind = El['kind'];
 
 export type Page = {
   id: string;
+  /** Arrangement id (where the photos go), or null for a page that matches no layout. */
   templateId: string | null;
+  /** How the arrangement is presented; absent for arrangements with a built-in look. */
+  finish?: FinishId;
   background: string;
   elements: El[];
   duration: number;
@@ -432,7 +436,12 @@ export function deserializeStory(json: string): Story {
   const pages: Page[] = raw.pages.map((p: unknown) => {
     if (!isObj(p) || !Array.isArray(p.elements)) return fail('Invalid page');
     const spread = isObj(p.spread) ? { index: num(p.spread.index, 'spread'), count: num(p.spread.count, 'spread') } : undefined;
-    return { id: str(p.id, 'page id'), templateId: typeof p.templateId === 'string' ? p.templateId : null, background: typeof p.background === 'string' ? p.background : '#ffffff', duration: typeof p.duration === 'number' && Number.isFinite(p.duration) ? Math.min(60, Math.max(0.5, p.duration)) : 3, elements: p.elements.map(readElement), ...(spread ? { spread } : {}), ...(p.hidden === true ? { hidden: true } : {}) };
+    const elements = p.elements.map(readElement);
+    const lead = elements.find((e): e is PhotoEl => e.kind === 'photo');
+    // Pages saved before finishes existed: 'stack-3-tight' becomes stack-3 + tight, and so on.
+    const old = migrateTemplate(typeof p.templateId === 'string' ? p.templateId : null, !!lead && (lead.w * aspectRatio(aspect)) / Math.max(1e-9, lead.h) < 1);
+    const finish = isFinishId(p.finish) ? p.finish : old.finish;
+    return { id: str(p.id, 'page id'), templateId: old.templateId, ...(finish ? { finish } : {}), background: typeof p.background === 'string' ? p.background : '#ffffff', duration: typeof p.duration === 'number' && Number.isFinite(p.duration) ? Math.min(60, Math.max(0.5, p.duration)) : 3, elements, ...(spread ? { spread } : {}), ...(p.hidden === true ? { hidden: true } : {}) };
   });
   const title = typeof raw.title === 'string' ? raw.title : '';
   const subtitle = typeof raw.subtitle === 'string' ? raw.subtitle : '';
