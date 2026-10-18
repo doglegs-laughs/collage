@@ -88,6 +88,16 @@ export function StoryView() {
     lib.remove(id);
     st.mutate((s) => removePhotos(s, [id]));
   };
+  // Undoing a remove or Clear all brings photos back into the story; keep the tray in step.
+  useEffect(() => {
+    const missing = story.photos.filter((p) => !lib.get(p.id));
+    if (missing.length) lib.adopt(missing);
+  }, [story.photos, lib.photos]); // eslint-disable-line react-hooks/exhaustive-deps
+  const clearTray = () => {
+    const ids = lib.photos.map((p) => p.id);
+    lib.clear();
+    st.mutate((s) => removePhotos(s, ids));
+  };
   const onScale = useCallback((w: number) => { ed.pxPerPage.current = w; }, [ed.pxPerPage]);
 
   useStoryKeys({
@@ -104,7 +114,8 @@ export function StoryView() {
       <aside className="sidebar story-tray">
         <div className="section">
           <PhotoTray
-            photos={lib.photos} selected={tray.selected} onToggle={tray.toggle} onRemove={removeFromTray}
+            photos={lib.photos} selected={tray.selected} onToggle={tray.toggle} onRemove={removeFromTray} onClearAll={clearTray}
+            clearNote="Photos used in the story become empty slots."
             onImport={() => void lib.pick()} onDropFiles={(f) => void lib.addFiles(f)} onSelectAll={tray.all} onSelectNone={tray.none}
           />
           {hasPages && <p className="hint">Drag a photo onto a photo on the page to replace it, or onto empty space to add it.</p>}
