@@ -21,6 +21,8 @@ jobs:
           cache: npm
 
       - run: npm ci
+      # Unit tests probe rendered videos with ffprobe
+      - run: brew install ffmpeg
       - run: npm run typecheck
       - run: npm test
 
