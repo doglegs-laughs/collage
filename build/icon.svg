@@ -1,48 +1,123 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#7c7ff7"/>
-      <stop offset="1" stop-color="#5b3fd6"/>
+    <!-- base: soft luminous backdrop, Liquid Glass icons sit on light, airy fields -->
+    <linearGradient id="bg" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#eef0ff"/>
+      <stop offset="0.55" stop-color="#d9dcff"/>
+      <stop offset="1" stop-color="#c3c4fb"/>
     </linearGradient>
-    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity=".22"/>
-      <stop offset=".5" stop-color="#fff" stop-opacity="0"/>
+    <radialGradient id="bgGlow" cx="0.3" cy="0.2" r="0.8">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <!-- colored light blobs that the glass refracts -->
+    <radialGradient id="blobA" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#7a6cff"/>
+      <stop offset="1" stop-color="#7a6cff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blobB" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ff9f7a"/>
+      <stop offset="1" stop-color="#ff9f7a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blobC" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#5ac8fa"/>
+      <stop offset="1" stop-color="#5ac8fa" stop-opacity="0"/>
+    </radialGradient>
+    <!-- glass body: translucent fill, brighter at top -->
+    <linearGradient id="glass" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".72"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".32"/>
     </linearGradient>
+    <linearGradient id="glassBack" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#d4dcff" stop-opacity=".8"/>
+      <stop offset="1" stop-color="#8e98f2" stop-opacity=".5"/>
+    </linearGradient>
+    <!-- specular rim: bright top-left, fading, faint bounce at bottom-right -->
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset="0.35" stop-color="#ffffff" stop-opacity=".15"/>
+      <stop offset="0.7" stop-color="#ffffff" stop-opacity=".05"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".7"/>
+    </linearGradient>
+    <!-- photo inside the front pane -->
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffd59e"/>
-      <stop offset="1" stop-color="#ff9a7a"/>
+      <stop offset="0" stop-color="#ffcf8a"/>
+      <stop offset="1" stop-color="#ff8a7a"/>
     </linearGradient>
-    <linearGradient id="sky2" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#bfe3ff"/>
-      <stop offset="1" stop-color="#8cc4f2"/>
+    <linearGradient id="hillFar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8b74ff"/>
+      <stop offset="1" stop-color="#6a4ff0"/>
     </linearGradient>
-    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#1e1065" flood-opacity=".38"/>
+    <linearGradient id="hillNear" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4b33c9"/>
+      <stop offset="1" stop-color="#32208f"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0.5" stop-color="#2a1d8f" stop-opacity="0"/>
+      <stop offset="1" stop-color="#2a1d8f" stop-opacity=".28"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".55"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="frost" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="28"/>
+    </filter>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#3b2aa8" flood-opacity=".28"/>
     </filter>
     <filter id="outer" x="-10%" y="-10%" width="120%" height="125%">
-      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity=".25"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#1b1350" flood-opacity=".22"/>
     </filter>
+    <clipPath id="body"><rect x="100" y="100" width="824" height="824" rx="186"/></clipPath>
+    <clipPath id="backPane"><rect x="250" y="262" width="420" height="500" rx="46"/></clipPath>
+    <clipPath id="photo"><rect x="372" y="330" width="356" height="356" rx="30"/></clipPath>
   </defs>
 
-  <!-- macOS icon grid: 824px body inset 100px -->
+  <!-- squircle body -->
   <g filter="url(#outer)">
     <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
-    <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#sheen)"/>
+  </g>
+  <g clip-path="url(#body)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#bgGlow)"/>
+    <circle cx="300" cy="740" r="260" fill="url(#blobA)" opacity=".55"/>
+    <circle cx="780" cy="300" r="240" fill="url(#blobB)" opacity=".45"/>
+    <circle cx="760" cy="800" r="220" fill="url(#blobC)" opacity=".35"/>
+  </g>
+  <!-- outer rim light on the body -->
+  <rect x="102" y="102" width="820" height="820" rx="184" fill="none" stroke="url(#rim)" stroke-width="4" opacity=".9"/>
+
+  <!-- back pane: frosted glass, refracting the blobs behind it -->
+  <g transform="rotate(-10 460 512)" filter="url(#soft)">
+    <g clip-path="url(#backPane)">
+      <g filter="url(#frost)">
+        <circle cx="300" cy="700" r="200" fill="#7a6cff" opacity=".7"/>
+        <circle cx="620" cy="320" r="160" fill="#5ac8fa" opacity=".6"/>
+      </g>
+      <rect x="250" y="262" width="420" height="500" fill="url(#glassBack)"/>
+    </g>
+    <rect x="252" y="264" width="416" height="496" rx="44" fill="none" stroke="url(#edge)" stroke-width="10"/>
+    <rect x="252" y="264" width="416" height="496" rx="44" fill="none" stroke="url(#rim)" stroke-width="5"/>
   </g>
 
-  <!-- back print -->
-  <g transform="rotate(-11 512 512)" filter="url(#shadow)">
-    <rect x="262" y="258" width="420" height="500" rx="14" fill="#f4f2ff"/>
-    <rect x="292" y="288" width="360" height="380" rx="4" fill="url(#sky2)"/>
-    <path d="M292 600 L400 500 L470 560 L560 470 L652 560 L652 668 L292 668 Z" fill="#4f9a7a"/>
-  </g>
-
-  <!-- front print: white border with thick bottom band -->
-  <g transform="rotate(7 540 540)" filter="url(#shadow)">
-    <rect x="330" y="290" width="440" height="520" rx="14" fill="#ffffff"/>
-    <rect x="362" y="322" width="376" height="380" rx="4" fill="url(#sky)"/>
-    <circle cx="640" cy="420" r="44" fill="#fff6e0"/>
-    <path d="M362 620 L470 520 L540 580 L620 500 L738 610 L738 702 L362 702 Z" fill="#6b4fd8"/>
-    <path d="M362 660 L450 600 L540 650 L640 590 L738 650 L738 702 L362 702 Z" fill="#3d2a9c"/>
+  <!-- front pane: clear glass print with a glossy photo -->
+  <g transform="rotate(7 550 520)" filter="url(#soft)">
+    <rect x="340" y="298" width="420" height="508" rx="50" fill="url(#glass)"/>
+    <g clip-path="url(#photo)">
+      <rect x="372" y="330" width="356" height="356" fill="url(#sky)"/>
+      <circle cx="640" cy="430" r="46" fill="#fff4dc"/>
+      <circle cx="640" cy="430" r="70" fill="#fff4dc" opacity=".25"/>
+      <path d="M372 610 L470 520 L540 575 L620 495 L728 590 L728 686 L372 686 Z" fill="url(#hillFar)"/>
+      <path d="M372 650 L455 595 L545 640 L640 585 L728 640 L728 686 L372 686 Z" fill="url(#hillNear)"/>
+      <rect x="372" y="330" width="356" height="356" fill="url(#gloss)"/>
+    </g>
+    <rect x="373" y="331" width="354" height="354" rx="29" fill="none" stroke="#ffffff" stroke-opacity=".5" stroke-width="2"/>
+    <!-- caption band hint -->
+    <rect x="420" y="726" width="150" height="16" rx="8" fill="#ffffff" opacity=".75"/>
+    <rect x="590" y="726" width="70" height="16" rx="8" fill="#ffffff" opacity=".45"/>
+    <rect x="342" y="300" width="416" height="504" rx="48" fill="none" stroke="url(#edge)" stroke-width="10"/>
+    <rect x="342" y="300" width="416" height="504" rx="48" fill="none" stroke="url(#rim)" stroke-width="6"/>
+    <!-- specular streak -->
+    <path d="M380 318 Q 520 300 700 312" stroke="#ffffff" stroke-opacity=".85" stroke-width="5" stroke-linecap="round" fill="none"/>
   </g>
 </svg>
