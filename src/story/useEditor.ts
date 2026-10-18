@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { clamp } from '../core/geometry';
 import type { Photo } from '../core/images';
 import {
-  addElement, addPage, addPhotos, aspectRatio, defaultPhotoEl, defaultRectEl, defaultTextEl, duplicatePage, duplicateElements, emptyPage, groupOf, movePageTo, photoIdsInUse, removeElements,
+  addElement, addPage, addPhotos, aspectRatio, defaultPhotoEl, defaultRectEl, defaultTextEl, duplicatePage, duplicateElements, emptyPage, groupOf, movePageTo, photoIdsInUse, removeElements, setPageHidden,
   removePage, reorderZ, replacePhoto, updateElements, type El, type Page, type Story, type ZMove,
 } from './model';
 import { moveToOwnPage } from './split';
@@ -133,6 +133,14 @@ export function useEditor(story: Story, mutate: Mutate) {
     mutate((s) => movePageTo(s, from, to).story);
     goTo(r.index);
   }, [mutate, goTo]);
+  /** Hide or show a page (with its spread group) in exports: one undo step. */
+  const toggleHidden = useCallback((index?: number) => {
+    const { story: s, pageIndex: pi } = live.current;
+    const at = index ?? pi;
+    const page = s.pages[at];
+    if (!page) return;
+    mutate((st) => setPageHidden(st, at, !page.hidden));
+  }, [mutate]);
   /** Send a photo (default: the selected one) to a page of its own, as one undo step. Returns the new page's index, or null when not possible. */
   const moveOwn = useCallback((elementId?: string, insertAt?: number): number | null => {
     const { story: s, pageIndex: pi, selection: sel } = live.current;
@@ -167,7 +175,7 @@ export function useEditor(story: Story, mutate: Mutate) {
   return {
     pageIndex, page, selection, cropId, editingId, setCropId, setEditingId, goTo, select, jump, patch, patchSelected, commitOverrides,
     remove, duplicate, nudge, zOrder, addText, addRect, addSlot, dropPhoto, replaceSelectedPhoto,
-    pageAdd, pageDuplicate, pageDelete, pageMove, moveOwn, pageLayout, cycleLayout, pxPerPage,
+    pageAdd, pageDuplicate, pageDelete, pageMove, toggleHidden, moveOwn, pageLayout, cycleLayout, pxPerPage,
   };
 }
 export type Editor = ReturnType<typeof useEditor>;

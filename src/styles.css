@@ -347,3 +347,9 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 .strip-new:hover { border-color: var(--accent-2); background: var(--accent-soft); color: var(--accent-text); }
 .story-page .se-photo { cursor: grab; }
 .story-page.panning .se-photo { cursor: grabbing; }
+.strip-item.is-hidden .strip-thumb { opacity: .35; }
+.strip-eye { position: absolute; right: 4px; top: 4px; width: 22px; height: 22px; padding: 3px; display: grid; place-items: center; border: 0; border-radius: 999px; background: #0f172acc; color: #fff; opacity: 0; transition: opacity .12s; cursor: pointer; }
+.strip-eye svg { width: 16px; height: 16px; }
+.strip-item:hover .strip-eye, .strip-eye:focus-visible, .strip-item.is-hidden .strip-eye { opacity: 1; }
+.strip-count { font-size: 11.5px; font-weight: 600; color: var(--muted, #64748b); text-align: center; white-space: nowrap; }
+.hidden-banner { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 6px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); font-size: 12.5px; font-weight: 600; }

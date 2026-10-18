@@ -14,7 +14,7 @@ import { ElementInspector } from './ElementInspector';
 import { ExportStatus, ImagesDialog, VideoDialog } from './ExportDialogs';
 import { LayoutControl } from './LayoutControl';
 import { PageStrip } from './PageStrip';
-import { aspectRatio, findPhoto, photoIdsInUse, removePhotos, updatePage, type El, type Story } from './model';
+import { aspectRatio, findPhoto, hiddenCount, photoIdsInUse, removePhotos, updatePage, type El, type Story } from './model';
 import { StoryEmpty, type MakeOpts } from './StoryEmpty';
 import { StoryInspector } from './StoryInspector';
 import { StoryStage, type DropHit } from './StoryStage';
@@ -70,7 +70,9 @@ export function StoryView() {
       setMaking(false);
     }
   };
+  const confirmRegenerate = () => hiddenCount(story) === 0 || window.confirm('Hidden pages will be regenerated too. Continue?');
   const shuffle = () => {
+    if (!confirmRegenerate()) return;
     const photos = chosen();
     st.generate(photos.length ? photos : story.photos);
     ed.goTo(0);
@@ -103,6 +105,8 @@ export function StoryView() {
     st.mutate((s) => removePhotos(s, ids));
   };
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [pageMenu, setPageMenu] = useState<{ i: number; x: number; y: number } | null>(null);
+  const closePageMenu = useCallback(() => setPageMenu(null), []);
   const closeMenu = useCallback(() => setMenu(null), []);
   const moveOwn = (elementId?: string, insertAt?: number) => {
     const at = ed.moveOwn(elementId, insertAt);
@@ -143,6 +147,7 @@ export function StoryView() {
     remove: ed.remove, nudge: ed.nudge, duplicate: ed.duplicate, undo: history.undo, redo: history.redo, zOrder: ed.zOrder,
     deselect: () => ed.select([]), selectAll: () => ed.select(page?.elements.map((e) => e.id) ?? []),
     exitCrop: () => ed.setCropId(null), goTo: ed.goTo, save: project.save, open: project.open, cycleLayout: ed.cycleLayout,
+    toggleHidden: () => ed.toggleHidden(),
     moveToOwnPage: () => { if (selectedEls.length === 1 && selectedEls[0].kind === 'photo') moveOwn(); },
   });
 
@@ -179,6 +184,12 @@ export function StoryView() {
               <Button onClick={history.redo} disabled={!history.canRedo} title="Redo (⇧⌘Z)" data-testid="story-redo">Redo</Button>
               <span className="story-pagelabel" data-testid="page-label">Page {pageIndex + 1} of {story.pages.length}</span>
             </div>
+            {page.hidden && (
+              <div className="hidden-banner" role="status" data-testid="hidden-banner">
+                This page is hidden and won't be exported.
+                <button type="button" className="link" onClick={() => ed.toggleHidden()}>Show page</button>
+              </div>
+            )}
             <StoryStage
               story={story} pageIndex={pageIndex} selection={selection} cropId={ed.cropId} editingId={ed.editingId}
               onSelect={ed.select} onJump={ed.jump} onCommit={ed.commitOverrides}
@@ -187,14 +198,14 @@ export function StoryView() {
               setCropId={ed.setCropId} setEditingId={ed.setEditingId} onDropPhoto={dropPhoto} onScale={onScale}
               onContextMenu={(id, x, y) => setMenu({ id, x, y })} onDropOut={dropOut}
             />
-            <PageStrip story={story} pageIndex={pageIndex} thumbs={thumbs} onSelect={ed.goTo} onMove={ed.pageMove} onAdd={ed.pageAdd} onDuplicate={ed.pageDuplicate} onDelete={ed.pageDelete} />
+            <PageStrip story={story} pageIndex={pageIndex} thumbs={thumbs} onSelect={ed.goTo} onMove={ed.pageMove} onToggleHidden={ed.toggleHidden} onMenu={(i, x, y) => setPageMenu({ i, x, y })} onAdd={ed.pageAdd} onDuplicate={ed.pageDuplicate} onDelete={ed.pageDelete} />
           </div>
           <aside className="sidebar story-insp" data-testid="story-inspector">
             <StoryInspector
               story={story} subtitle={st.subtitle} page={page} pageIndex={pageIndex} extraPhotos={extraPhotos} onLayout={(o) => ed.pageLayout(o, extraPhotos)}
               onPage={(p, key) => st.mutate((s) => updatePage(s, pageIndex, p), key)}
               onTitle={st.setTitle} onSubtitle={st.setSubtitle} onRecreate={recreate}
-              onAddText={ed.addText} onAddSlot={ed.addSlot} onAddRect={ed.addRect}
+              onToggleHidden={() => ed.toggleHidden()} onAddText={ed.addText} onAddSlot={ed.addSlot} onAddRect={ed.addRect}
             >
               <ElementInspector
                 els={selectedEls} patch={(p, key) => ed.patchSelected(p, key)}
@@ -206,6 +217,16 @@ export function StoryView() {
         </>
       ) : (
         <StoryEmpty photoCount={lib.photos.length} busy={making} onMake={(o) => void make(o)} />
+      )}
+      {pageMenu && story.pages[pageMenu.i] && (
+        <ContextMenu
+          x={pageMenu.x} y={pageMenu.y} label="Page actions" onClose={closePageMenu}
+          items={[
+            { label: story.pages[pageMenu.i].hidden ? 'Show page' : 'Hide page', onSelect: () => ed.toggleHidden(pageMenu.i) },
+            { label: 'Duplicate page', onSelect: () => { ed.goTo(pageMenu.i); ed.pageDuplicate(); } },
+            { label: 'Delete page', onSelect: () => { ed.goTo(pageMenu.i); ed.pageDelete(); }, separator: true },
+          ]}
+        />
       )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.id)} onClose={closeMenu} />}
       <StoryTopbar

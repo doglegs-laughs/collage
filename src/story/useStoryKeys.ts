@@ -21,6 +21,7 @@ export type KeyActions = {
   open: () => void;
   cycleLayout: (direction: 1 | -1) => void;
   moveToOwnPage: () => void;
+  toggleHidden: () => void;
 };
 
 const isTyping = (t: EventTarget | null): boolean => {
@@ -43,6 +44,7 @@ export function useStoryKeys(actions: KeyActions) {
       if (mod) {
         const k = key.toLowerCase();
         if (k === 'n' && e.shiftKey) { done(); a.moveToOwnPage(); }
+        else if (k === 'h' && e.shiftKey) { done(); a.toggleHidden(); }
         else if (k === 'z') { done(); if (e.shiftKey) a.redo(); else a.undo(); }
         else if (k === 'y') { done(); a.redo(); }
         else if (k === 'd') { done(); a.duplicate(); }

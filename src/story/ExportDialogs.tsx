@@ -3,7 +3,7 @@ import { api } from '../api';
 import { Button, Segmented, Slider } from '../ui/Controls';
 import { useToast } from '../ui/Toast';
 import { Check, Field } from './fields';
-import { evenPageSize, pageSize, type Story, type VideoSettings } from './model';
+import { evenPageSize, pageSize, visibleIndices, type Story, type VideoSettings } from './model';
 import type { ExportJob, ExportDone, VideoRequest } from './useExporter';
 
 function Modal({ title, onClose, children, testid }: { title: string; onClose: () => void; children: ReactNode; testid: string }) {
@@ -34,7 +34,7 @@ export function ImagesDialog({ story, onExport, onClose }: { story: Story; onExp
       <Field label="Width">
         <Segmented<'1080' | '2160'> label="Image width" value={width} options={[{ value: '1080', label: '1080 px' }, { value: '2160', label: '2160 px' }]} onChange={setWidth} />
       </Field>
-      <p className="hint">{story.pages.length} JPEG files, {size.width} × {size.height} px each, saved to a folder you choose. Existing files are never replaced.</p>
+      <p className="hint">{visibleIndices(story).length} JPEG files, {size.width} × {size.height} px each, saved to a folder you choose. Existing files are never replaced.</p>
       <div className="btn-row end">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" onClick={() => { onClose(); onExport(Number(width)); }} data-testid="images-go">Choose folder…</Button>
@@ -90,7 +90,7 @@ export function VideoDialog({ story, onVideo, onExport, onClose }: VideoProps) {
       <Field label="Size" className="gap-top">
         <Segmented<'720' | '1080'> label="Video width" value={width} options={[{ value: '720', label: '720 px' }, { value: '1080', label: '1080 px' }]} onChange={setWidth} />
       </Field>
-      <p className="hint">{story.pages.length} pages, {size.width} × {size.height} px, 30 fps. Pages whose duration you changed keep it. Seams crossed by a panorama or split photo slide as one move.</p>
+      <p className="hint">{visibleIndices(story).length} pages, {size.width} × {size.height} px, 30 fps. Pages whose duration you changed keep it. Seams crossed by a panorama or split photo slide as one move.</p>
       <div className="btn-row end">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="primary" data-testid="video-go" onClick={() => { onClose(); onExport({ width: Number(width), pageSeconds, fitToMusic: v.fitToMusic && !!music }); }}>Make video…</Button>

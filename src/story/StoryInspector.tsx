@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Segmented, Slider } from '../ui/Controls';
 import type { Photo } from '../core/images';
-import { ColorInput, Field } from './fields';
+import { Check, ColorInput, Field } from './fields';
 import { LayoutPicker } from './LayoutPicker';
 import type { LayoutOption } from './layouts';
-import { ASPECTS, type Aspect, type Page, type StyleId, type Story } from './model';
+import { ASPECTS, hiddenCount, type Aspect, type Page, type StyleId, type Story } from './model';
 
 type Change = { style?: StyleId; aspect?: Aspect };
 type Props = {
@@ -18,6 +18,7 @@ type Props = {
   onTitle: (t: string) => void;
   onSubtitle: (t: string) => void;
   onRecreate: (c: Change) => void;
+  onToggleHidden: () => void;
   onAddText: () => void;
   onAddSlot: () => void;
   onAddRect: () => void;
@@ -41,6 +42,7 @@ export function StoryInspector(p: Props) {
         <Field label="Layout">
           <LayoutPicker story={story} pageIndex={p.pageIndex} extraPhotos={p.extraPhotos} onApply={p.onLayout} testId="layout-section" />
         </Field>
+        <Check label="Hide page" checked={!!page.hidden} onChange={p.onToggleHidden} />
         <Field label="Background">
           <ColorInput label="Page background" value={page.background} onChange={(v) => p.onPage({ background: v }, `bg-${page.id}`)} />
         </Field>
@@ -70,7 +72,7 @@ export function StoryInspector(p: Props) {
         </Field>
         {pending && (
           <div className="confirm" role="alertdialog" aria-label="Confirm re-create">
-            <p>Re-create every page with {what}? Your edits to the pages are replaced (undo brings them back).</p>
+            <p>Re-create every page with {what}? Your edits to the pages are replaced (undo brings them back).{hiddenCount(story) > 0 && ' Hidden pages will be regenerated too.'}</p>
             <div className="btn-row">
               <Button variant="primary" onClick={() => { p.onRecreate(pending); setPending(null); }}>Re-create</Button>
               <Button onClick={() => setPending(null)}>Cancel</Button>

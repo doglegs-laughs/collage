@@ -60,6 +60,8 @@ export type Page = {
   duration: number;
   /** Set on every page of a multi-page template (panorama, seamless split). */
   spread?: { index: number; count: number };
+  /** Hidden pages stay in the story (and the editor) but are left out of exports. Applies to a whole spread group. */
+  hidden?: boolean;
 };
 export type VideoSettings = { transition: 'none' | 'crossfade'; transitionSeconds: number; kenBurns: boolean; audioPath: string | null; fitToMusic: boolean };
 export type Story = {
@@ -309,6 +311,27 @@ const cloneSpread = (page: Page): Page => ({
   ...(page.spread ? { spread: { ...page.spread } } : {}),
 });
 
+/** Indices of the pages that get exported, in order. */
+export function visibleIndices(story: Story): number[] {
+  return story.pages.flatMap((p, i) => (p.hidden ? [] : [i]));
+}
+export const visiblePages = (story: Story): Page[] => story.pages.filter((p) => !p.hidden);
+export const hiddenCount = (story: Story): number => story.pages.reduce((n, p) => n + (p.hidden ? 1 : 0), 0);
+/** Hide or show a page together with the rest of its spread group. */
+export function setPageHidden(story: Story, pageIndex: number, hidden: boolean): Story {
+  if (!story.pages[pageIndex]) return story;
+  const { start, end } = groupOf(story, pageIndex);
+  return {
+    ...story,
+    pages: story.pages.map((p, i) => {
+      if (i < start || i >= end) return p;
+      const { hidden: _drop, ...rest } = p;
+      void _drop;
+      return hidden ? { ...rest, hidden: true } : rest;
+    }),
+  };
+}
+
 /** Insert a page; a position inside a spread group lands after that group. */
 export function addPage(story: Story, page: Page = emptyPage(story.background), at = story.pages.length): Story {
   const pages = story.pages.slice();
@@ -405,7 +428,7 @@ export function deserializeStory(json: string): Story {
   const pages: Page[] = raw.pages.map((p: unknown) => {
     if (!isObj(p) || !Array.isArray(p.elements)) return fail('Invalid page');
     const spread = isObj(p.spread) ? { index: num(p.spread.index, 'spread'), count: num(p.spread.count, 'spread') } : undefined;
-    return { id: str(p.id, 'page id'), templateId: typeof p.templateId === 'string' ? p.templateId : null, background: typeof p.background === 'string' ? p.background : '#ffffff', duration: typeof p.duration === 'number' && Number.isFinite(p.duration) ? Math.min(60, Math.max(0.5, p.duration)) : 3, elements: p.elements.map(readElement), ...(spread ? { spread } : {}) };
+    return { id: str(p.id, 'page id'), templateId: typeof p.templateId === 'string' ? p.templateId : null, background: typeof p.background === 'string' ? p.background : '#ffffff', duration: typeof p.duration === 'number' && Number.isFinite(p.duration) ? Math.min(60, Math.max(0.5, p.duration)) : 3, elements: p.elements.map(readElement), ...(spread ? { spread } : {}), ...(p.hidden === true ? { hidden: true } : {}) };
   });
   const v = isObj(raw.video) ? raw.video : {};
   const style = STYLE_IDS.includes(raw.style as StyleId) ? (raw.style as StyleId) : 'clean';

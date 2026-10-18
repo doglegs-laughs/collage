@@ -429,3 +429,52 @@ test('drag pans the photo in its frame; double-click moves the frame', async () 
   await page.keyboard.press('Escape');
   await expect(page.locator('.crop-hint')).toHaveCount(0);
 });
+
+test('hide a page: dimmed in the strip, skipped by export, undo/redo', async () => {
+  test.setTimeout(180_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  await stubDialogs({ photos, folder, video: path.join(folder, 'x.mp4') });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(page.getByTestId('view-story').locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  await page.getByTestId('make-story').click();
+  await expect(page.getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  const total = await stripCount();
+  expect(total).toBeGreaterThanOrEqual(3);
+  const item = page.getByTestId('strip-page').nth(1);
+  const count = page.getByTestId('strip-count');
+  await expect(count).toHaveText(`${total} pages`);
+
+  await item.hover();
+  await item.getByTestId('strip-eye').click();
+  await expect(item).toHaveAttribute('data-hidden', 'true');
+  await expect(count).toHaveText(`${total} pages · 1 hidden`);
+  await expect.poll(() => item.locator('.strip-thumb').evaluate((n) => Number(getComputedStyle(n).opacity))).toBeLessThan(0.5);
+
+  // The hidden page can still be opened; the stage says so.
+  await item.click();
+  await expect(page.getByTestId('hidden-banner')).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Hide page' })).toBeChecked();
+
+  // Export skips it.
+  await page.getByTestId('story-export').click();
+  await page.getByTestId('export-images-item').click();
+  await page.getByTestId('images-go').click();
+  await expect(page.getByTestId('export-reveal')).toBeVisible({ timeout: 240_000 });
+  expect(fs.readdirSync(folder).filter((f) => f.endsWith('.jpg')).length).toBe(total - 1);
+
+  // Show it again with the banner, then undo / redo.
+  await page.getByTestId('hidden-banner').getByRole('button', { name: 'Show page' }).click();
+  await expect(item).toHaveAttribute('data-hidden', 'false');
+  await expect(count).toHaveText(`${total} pages`);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(item).toHaveAttribute('data-hidden', 'true');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect(item).toHaveAttribute('data-hidden', 'false');
+
+  // Shortcut toggles the current page, and the strip context menu offers the same.
+  await page.keyboard.press('ControlOrMeta+Shift+h');
+  await expect(item).toHaveAttribute('data-hidden', 'true');
+  await item.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Show page' }).click();
+  await expect(item).toHaveAttribute('data-hidden', 'false');
+});
