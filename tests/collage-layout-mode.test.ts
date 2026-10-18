@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyTarget, aspectFor, bestArrangementId, buildLayoutStory, chooseTarget, exportSize, originalLongEdge, targetOf, unusedPhotos } from '../src/collage/layoutMode';
+import { applyTarget, aspectFor, bestArrangementId, buildLayoutStory, chooseTarget, exportSize, originalLongEdge, targetOf, unusedPhotos } from '../src/collage/layoutModeState';
 import { getArrangement } from '../src/story/arrangements';
 import { photoIdsInUse } from '../src/story/model';
 import { makePhotos } from './story-helpers';

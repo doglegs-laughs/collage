@@ -23,7 +23,7 @@ import { collageFileName } from './renderCollage';
 import {
   aspectFor, applyTarget, buildLayoutStory, chooseTarget, DEFAULT_SHAPE, exportLongEdge, exportSize, originalLongEdge, SHAPES, targetOf, unusedPhotos,
   type ExportChoice, type PageShape,
-} from './layoutMode';
+} from './layoutModeState';
 import { TopbarActions } from './TopbarActions';
 import { useVisible } from './useVisible';
 import './layout.css';
