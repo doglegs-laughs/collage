@@ -1,8 +1,8 @@
 import { api } from '../api';
 import { makeCanvas, toJpeg } from '../core/canvas';
 import { getFullBitmap, type Photo } from '../core/images';
-import { borderLayout, borderStem, uniqueName, type BorderOptions } from './borderMath';
-import { drawBorder } from './render';
+import { borderStem, finishLayout, uniqueName, type FinishOptions } from './borderMath';
+import { drawBorder, prepareFonts } from './render';
 
 export type ExportResult = {
   folder: string;
@@ -13,8 +13,9 @@ export type ExportResult = {
 };
 
 export type ExportRequest = {
-  options: BorderOptions;
+  options: FinishOptions;
   fill: string;
+  caption?: string;
   folder: string;
   cancelled: () => boolean;
   onProgress: (done: number, total: number) => void;
@@ -31,14 +32,15 @@ export async function exportBorders(photos: Photo[], req: ExportRequest): Promis
   const written: string[] = [];
   const failed: { name: string; error: string }[] = [];
   let cancelled = false;
+  await prepareFonts();
 
   const exportOne = async (photo: Photo): Promise<string> => {
     const bitmap = await getFullBitmap(photo);
     try {
-      const layout = borderLayout({ width: bitmap.width, height: bitmap.height }, req.options);
+      const layout = finishLayout({ width: bitmap.width, height: bitmap.height }, req.options);
       const canvas = makeCanvas(layout.canvasW, layout.canvasH);
       if (!canvas) throw new Error('This size is too large for this computer. Try 2160 or 1080.');
-      drawBorder(canvas.getContext('2d')!, bitmap, layout, req.fill);
+      drawBorder(canvas.getContext('2d')!, bitmap, layout, { finish: req.options.finish, fill: req.fill, caption: req.caption });
       const bytes = await toJpeg(canvas, 0.95);
       canvas.width = canvas.height = 0;
       const name = await uniqueName(borderStem(photo.name), async (n) => used.has(n) || (await api.exists(join(n))));
