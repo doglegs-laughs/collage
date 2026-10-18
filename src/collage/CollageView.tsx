@@ -4,7 +4,9 @@ import { cellSizeFor, defaultBorder, outputSize, type Size } from '../core/geome
 import { isImageFile } from '../core/images';
 import { usePhotoLibrary } from '../core/library';
 import { recentToFile, removeRecent, saveRecent, touchRecent, type RecentItem } from '../core/recents';
+import { Segmented } from '../ui/Controls';
 import { useToast } from '../ui/Toast';
+import { LayoutMode } from './LayoutMode';
 import { CollageGrid } from './CollageGrid';
 import { Sidebar } from './Sidebar';
 import { TopbarActions } from './TopbarActions';
@@ -16,11 +18,12 @@ import { useVisible } from './useVisible';
 
 const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
 
-export function CollageView() {
+/** The grid collage (the original Collage mode). Mounted for the life of the app, so `active` switches off its global drop / paste / top-bar actions while Layout mode shows. */
+function GridView({ active }: { active: boolean }) {
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const pickTarget = useRef<number | null>(null);
-  const visible = useVisible(root);
+  const visible = useVisible(root) && active;
   const toast = useToast();
   const lib = usePhotoLibrary();
   const collage = useCollage();
@@ -188,6 +191,21 @@ export function CollageView() {
         onExport={doExport}
         onSendToStory={doSendToStory}
       />
+    </div>
+  );
+}
+
+type Mode = 'grid' | 'layout';
+/** Collage page: a switch between the photo grid and a one-page layout built from the Story arrangements. */
+export function CollageView() {
+  const [mode, setMode] = useState<Mode>('grid');
+  return (
+    <div className="collage-shell">
+      <div className="collage-modebar" data-testid="collage-mode">
+        <Segmented<Mode> label="Collage type" options={[{ value: 'grid', label: 'Grid', title: 'Rows and columns of boxes' }, { value: 'layout', label: 'Layout', title: 'One page using a Story layout' }]} value={mode} onChange={setMode} />
+      </div>
+      <div className="collage-pane" hidden={mode !== 'grid'}><GridView active={mode === 'grid'} /></div>
+      <div className="collage-pane" hidden={mode !== 'layout'}><LayoutMode active={mode === 'layout'} /></div>
     </div>
   );
 }

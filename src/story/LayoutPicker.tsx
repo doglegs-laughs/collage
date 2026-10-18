@@ -94,6 +94,8 @@ type Props = {
   onClose?: () => void;
   autoFocus?: boolean;
   testId?: string;
+  /** Leaves out the options it rejects (a one-page editor hides multi-page layouts). */
+  filter?: (option: LayoutOption) => boolean;
 };
 
 type GroupKey = Group | 'more';
@@ -101,8 +103,8 @@ type GroupKey = Group | 'more';
 const toggled = new Map<GroupKey, boolean>();
 
 /** Finish chips for the current arrangement, then arrangement tiles in collapsible groups. Tab moves between the chips and the tiles, arrows move within, Enter applies, Esc closes. */
-export function LayoutPicker({ story, pageIndex, extraPhotos, onApply, onClose, autoFocus, testId = 'layout-picker' }: Props) {
-  const options = useMemo(() => layoutOptions(story, pageIndex), [story, pageIndex]);
+export function LayoutPicker({ story, pageIndex, extraPhotos, onApply, onClose, autoFocus, testId = 'layout-picker', filter }: Props) {
+  const options = useMemo(() => (filter ? layoutOptions(story, pageIndex).filter(filter) : layoutOptions(story, pageIndex)), [story, pageIndex, filter]);
   const cur = useMemo(() => currentOf(story, pageIndex), [story, pageIndex]);
   const [ver, rerender] = useState(0);
   const isOpen = (key: GroupKey, items: LayoutOption[]) => toggled.get(key) ?? items.some((o) => o.current);
