@@ -99,3 +99,20 @@ describe('moveToOwnPage', () => {
     expect([moved.crop.zoom === 1 || moved.crop.zoom === 1.5]).toEqual([true]);
   });
 });
+
+describe('moveToOwnPage without an exact template', () => {
+  it('9 photos in grid-3x3 become 8 + 1 with no empty slots and every photo once', () => {
+    const photos = Array.from({ length: 9 }, (_, i) => (i % 3 === 0 ? P(`p${i}`) : L(`p${i}`)));
+    const s = storyWith('grid-3x3', photos);
+    const text = defaultTextEl({ text: 'Keep me' });
+    const withText = { ...s, pages: [{ ...s.pages[0], elements: [...s.pages[0].elements, text] }] };
+    const r = moveToOwnPage(withText, 0, firstPhoto(withText).id)!;
+    const els = r.story.pages.flatMap((p) => p.elements);
+    expect(els.filter((e) => e.kind === 'photo' && !e.photoId)).toHaveLength(0);
+    expect(all(r.story)).toEqual(all(s));
+    expect(r.story.pages[0]).toMatchObject({ id: 'pg0', duration: 5 });
+    expect(r.story.pages[0].elements.some((e) => e.kind === 'text' && e.text === 'Keep me')).toBe(true);
+    expect(r.story.pages[r.pageIndex].elements.filter((e) => e.kind === 'photo')).toHaveLength(1);
+    expect(r.pageIndex).toBe(r.story.pages.length - 1);
+  });
+});

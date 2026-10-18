@@ -352,4 +352,20 @@ test('move a photo to its own page: inspector, undo, context menu, shortcut', as
   await photoEls.first().locator('.se-photo').click();
   await page.keyboard.press('ControlOrMeta+Shift+n');
   await expect.poll(stripCount).toBe(total + 1);
+
+  // Drag a photo from the stage onto the "New page" zone at the end of the strip.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(stripCount).toBe(total);
+  await page.getByTestId('strip-page').nth(multi).click();
+  await expect(page.getByTestId('page-label')).toContainText(`Page ${multi + 1} of`);
+  const from = await photoEls.first().locator('.se-photo').boundingBox();
+  const to = await page.getByTestId('strip-new-page').boundingBox();
+  await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from!.x + from!.width / 2 + 20, from!.y + from!.height / 2 + 20, { steps: 4 });
+  await page.mouse.move(to!.x + to!.width / 2, to!.y + to!.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await expect.poll(stripCount).toBe(total + 1);
+  await expect(page.getByTestId('page-label')).toContainText(`Page ${total + 1} of ${total + 1}`);
+  await expect(photoEls).toHaveCount(1);
 });

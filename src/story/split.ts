@@ -1,6 +1,7 @@
 import { DEFAULT_CROP } from '../core/geometry';
 import type { Photo } from '../core/images';
-import { applyLayout, FULL_EACH, layoutOptions, pageSeed, type LayoutOption } from './layouts';
+import { makeStory } from './autofill';
+import { applyLayout, FULL_EACH, layoutOptions, pageSeed, userTexts, type LayoutOption } from './layouts';
 import { addPage, aspectRatio, groupOf, newId, type El, type Page, type PhotoEl, type Story } from './model';
 import { getTemplate, orientationOf, type Template } from './templates';
 
@@ -24,6 +25,26 @@ export function singleTemplateFor(style: Story['style'], photo: Photo | undefine
 const optionOf = (t: Template): LayoutOption => ({ id: t.id, name: t.name, templateId: t.id, slots: t.slots, pages: t.pageCount, current: false, slotsDiffer: false });
 
 const ratioOf = (e: PhotoEl, A: number) => (e.w * A) / Math.max(1e-9, e.h);
+
+/** No template takes exactly the remaining photos: lay them out with the autofill instead (no empty slots). */
+function relayAll(story: Story, without: Story, start: number, end: number, srcIndex: number, seed: number): Story {
+  const remaining = without.pages.slice(start, end)
+    .flatMap((p) => p.elements.filter((e): e is PhotoEl => e.kind === 'photo' && !!e.photoId))
+    .map((e) => story.photos.find((p) => p.id === e.photoId))
+    .filter((p): p is Photo => !!p);
+  const lead = story.pages[start];
+  const fresh = makeStory(remaining, { style: story.style, aspect: story.aspect, seed });
+  if (!fresh.length) return without;
+  const texts = userTexts(without, srcIndex);
+  const pages = fresh.map((p, i): Page => {
+    const bg = p.background.toLowerCase() !== '#ffffff' ? p.background : lead.background;
+    const base = { ...p, background: bg, duration: lead.duration };
+    if (i > 0) return base;
+    const top = Math.max(-1, ...p.elements.map((e) => e.z));
+    return { ...base, id: lead.id, elements: [...p.elements, ...texts.map((t, k): El => ({ ...t, z: top + 1 + k }))] };
+  });
+  return { ...without, pages: [...without.pages.slice(0, start), ...pages, ...without.pages.slice(end)] };
+}
 
 /** True when moveToOwnPage would do something for this element. */
 export function canMoveToOwnPage(story: Story, pageIndex: number, elementId: string): boolean {
@@ -66,11 +87,11 @@ export function moveToOwnPage(story: Story, pageIndex: number, elementId: string
     const t = getTemplate(singleTemplateFor(story.style, story.photos.find((p) => p.id === left.photoId)));
     if (t) option = optionOf(t);
   } else {
-    const all = layoutOptions(without, srcIndex).filter((o) => o.templateId !== FULL_EACH && o.pages === 1 && o.slots >= n);
+    const all = layoutOptions(without, srcIndex).filter((o) => o.templateId !== FULL_EACH && o.pages === 1 && o.slots === n && !o.slotsDiffer);
     const fam = familyOf(source.templateId);
     option = (fam && all.find((o) => !o.slotsDiffer && o.slots === n && familyOf(o.templateId) === fam)) || all[0];
   }
-  const relaid = option ? applyLayout(without, srcIndex, option, { seed }).story : without;
+  const relaid = option ? applyLayout(without, srcIndex, option, { seed }).story : relayAll(story, without, start, end, srcIndex, seed);
   const delta = relaid.pages.length - story.pages.length;
 
   // 2. The new page.
