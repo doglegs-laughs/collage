@@ -1,6 +1,6 @@
 {
   "name": "collage",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Collage, story and border maker for photos",
   "private": true,
   "type": "module",

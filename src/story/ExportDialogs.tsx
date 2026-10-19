@@ -131,6 +131,21 @@ export function VideoDialog({ story, onVideo, onExport, onClose }: VideoProps) {
   );
 }
 
+function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** Time since the export began, refreshed every second. */
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [since]);
+  return <span className="elapsed" data-testid="export-elapsed">{formatElapsed(now - since)}</span>;
+}
+
 export function ExportStatus({ job, done, onCancel, onClear }: { job: ExportJob | null; done: ExportDone | null; onCancel: () => void; onClear: () => void }) {
   if (!job && !done) return null;
   return (
@@ -138,6 +153,7 @@ export function ExportStatus({ job, done, onCancel, onClear }: { job: ExportJob 
       {job ? (
         <>
           <span>{job.label}</span>
+          <Elapsed since={job.startedAt} />
           <span className="status-bar"><span style={{ width: job.fraction === null ? '30%' : `${Math.round(job.fraction * 100)}%` }} className={job.fraction === null ? 'indeterminate' : ''} /></span>
           <button type="button" className="link" onClick={onCancel} data-testid="export-cancel">Cancel</button>
         </>

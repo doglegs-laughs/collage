@@ -2,6 +2,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 function isPackaged() {
+  // Outside Electron (unit tests, scripts) require('electron') only resolves the binary path, and in
+  // Electron 44 that triggers a lazy download, so don't touch it unless we're inside Electron.
+  if (!process.versions.electron) return false;
   try {
     return require('electron').app?.isPackaged === true;
   } catch {

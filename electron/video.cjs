@@ -85,11 +85,49 @@ function probeJpegSize(buf) {
 
 const num = (n) => String(Math.round(n * 1e4) / 1e4);
 
+const SOFTWARE_ENCODER = 'libx264';
+const HARDWARE_ENCODER = 'h264_videotoolbox';
+
+/** Encoder names the bundled ffmpeg reports, probed once per process (the answer cannot change while we run). */
+let encoderProbe = null;
+function listEncoders() {
+  if (!encoderProbe) {
+    encoderProbe = new Promise((resolve) => {
+      let out = '';
+      let proc;
+      try { proc = spawn(ffmpegPath(), ['-hide_banner', '-encoders'], { stdio: ['ignore', 'pipe', 'ignore'] }); } catch { resolve(''); return; }
+      proc.stdout.on('data', (d) => { out += d.toString(); });
+      proc.on('error', () => resolve(''));
+      proc.on('close', () => resolve(out));
+    });
+  }
+  return encoderProbe;
+}
+
+/** Apple's hardware H.264 encoder on macOS when this ffmpeg build has it, libx264 everywhere else. */
+async function pickEncoder() {
+  if (process.platform !== 'darwin') return SOFTWARE_ENCODER;
+  return /\bh264_videotoolbox\b/.test(await listEncoders()) ? HARDWARE_ENCODER : SOFTWARE_ENCODER;
+}
+
+/**
+ * Video codec arguments. libx264 veryfast + stillimage is ~2x faster than medium for slideshow content at
+ * a similar size (stillimage suits mostly-static frames); crf 20 is visually the same for photos.
+ * VideoToolbox has no CRF, so the bitrate scales with pixels x fps (~12 Mbps for 1080x1350 at 30 fps).
+ */
+function encoderArgs(encoder, size, fps) {
+  if (encoder === SOFTWARE_ENCODER) {
+    return ['-c:v', SOFTWARE_ENCODER, '-preset', 'veryfast', '-crf', '20', '-tune', 'stillimage', '-threads', '0'];
+  }
+  const bps = Math.max(2e6, Math.min(40e6, Math.round(size.width * size.height * fps * 0.275)));
+  return ['-c:v', encoder, '-b:v', String(bps), '-maxrate', String(Math.round(bps * 1.5)), '-allow_sw', '1', '-profile:v', 'high'];
+}
+
 /**
  * Build ffmpeg args. size = {width,height} (will be forced even).
- * paths = { frames: string[], output: string }.
+ * paths = { frames: string[], output: string }. encoder = ffmpeg H.264 encoder name.
  */
-function buildArgs(job, size, paths) {
+function buildArgs(job, size, paths, encoder = SOFTWARE_ENCODER) {
   const W = Math.floor(size.width / 2) * 2;
   const H = Math.floor(size.height / 2) * 2;
   const n = job.frames.length;
@@ -112,10 +150,13 @@ function buildArgs(job, size, paths) {
   for (let i = 0; i < n; i++) {
     const frameCount = Math.max(1, Math.round(lens[i] * fps));
     if (useKb(i)) {
-      // single-frame input; zoompan generates all frames
+      // Single-frame input; zoompan generates all frames. The pre-upscale hides zoompan's whole-pixel crop
+      // steps. Measured on 1080x1350 (10 pages, filter graph only): 2x 5.1 s, 1.5x 4.3 s, 1x 2.4 s but 1x
+      // repeats frames (visible stepping), and scale(eval=frame)+crop is slower (8.8 s) and steppier. 1.5x
+      // has no repeated frames and is within noise of 2x for smoothness, so it is the cheapest safe choice.
       args.push('-i', paths.frames[i]);
       filters.push(
-        `[${i}:v]scale=${W * 2}:${H * 2},setsar=1,` +
+        `[${i}:v]scale=${Math.round((W * 1.5) / 2) * 2}:${Math.round((H * 1.5) / 2) * 2},setsar=1,` +
           `zoompan=z='1+0.06*on/${Math.max(1, frameCount - 1)}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frameCount}:s=${W}x${H}:fps=${fps},` +
           `format=yuv420p,setsar=1,fps=${fps}[v${i}]`
       );
@@ -160,7 +201,7 @@ function buildArgs(job, size, paths) {
   args.push('-filter_complex', filters.join(';'));
   args.push('-map', `[${last}]`);
   if (job.audioPath) args.push('-map', '[aout]');
-  args.push('-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p', '-movflags', '+faststart');
+  args.push(...encoderArgs(encoder, { width: W, height: H }, fps), '-pix_fmt', 'yuv420p', '-movflags', '+faststart');
   if (job.audioPath) args.push('-c:a', 'aac', '-b:a', '192k');
   args.push('-t', num(total), '-progress', 'pipe:1', '-nostats', '-f', 'mp4', paths.output);
   return args;
@@ -170,7 +211,53 @@ async function rmQuiet(p, opts) {
   try { await fs.promises.rm(p, { force: true, recursive: true, ...opts }); } catch { /* ignore */ }
 }
 
-async function makeVideo(job, onProgress) {
+function runFfmpeg(state, args, total, onProgress) {
+  return new Promise((resolve, reject) => {
+    let proc;
+    try {
+      proc = spawn(ffmpegPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) { reject(e); return; }
+    state.proc = proc;
+    if (state.cancelled) { try { proc.kill('SIGKILL'); } catch { /* ignore */ } }
+    let errTail = '';
+    let buf = '';
+    let lastEmit = 0;
+    let lastFrac = -1;
+    const emit = (frac, force) => {
+      frac = Math.max(0, Math.min(1, frac));
+      const now = Date.now();
+      if (typeof onProgress !== 'function' || frac < lastFrac) return;
+      if (!force && now - lastEmit < 100) return;
+      lastEmit = now; lastFrac = frac;
+      try { onProgress(frac); } catch { /* ignore */ }
+    };
+    // out_time is the encoded position in the output, so the fraction tracks real encoding work.
+    proc.stdout.on('data', (d) => {
+      buf += d.toString();
+      let idx;
+      while ((idx = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        const m = /^out_time(?:_us|_ms)=(\d+)/.exec(line);
+        if (m) emit(Number(m[1]) / 1e6 / total, false);
+      }
+    });
+    proc.stderr.on('data', (d) => { errTail = (errTail + d.toString()).slice(-4096); });
+    proc.on('error', (e) => reject(new Error(`Could not start ffmpeg: ${e.message}`)));
+    proc.on('close', (code, signal) => {
+      if (state.killTimer) clearTimeout(state.killTimer);
+      if (state.cancelled) return reject(abortError());
+      if (code === 0) { emit(1, true); return resolve(); }
+      reject(new Error(`ffmpeg failed (${code ?? signal}): ${errTail.trim()}`));
+    });
+  });
+}
+
+/**
+ * opts (for tests): encoder = force an encoder name, onAttempt(encoder) = called before every ffmpeg run.
+ * A hardware encoder that fails is retried once with libx264, so the user never sees the failure.
+ */
+async function makeVideo(job, onProgress, opts = {}) {
   if (current) throw new Error('A video export is already running');
   const state = { proc: null, cancelled: false, killTimer: null, done: null, finish: null };
   state.done = new Promise((resolve) => { state.finish = resolve; });
@@ -195,47 +282,20 @@ async function makeVideo(job, onProgress) {
     }
     if (state.cancelled) throw abortError();
 
-    const args = buildArgs(job, size, { frames: framePaths, output: partial });
     const total = job.durations.reduce((a, b) => a + b, 0);
-
-    await new Promise((resolve, reject) => {
-      let proc;
-      try {
-        proc = spawn(ffmpegPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
-      } catch (e) { reject(e); return; }
-      state.proc = proc;
-      if (state.cancelled) { try { proc.kill('SIGKILL'); } catch { /* ignore */ } }
-      let errTail = '';
-      let buf = '';
-      let lastEmit = 0;
-      let lastFrac = -1;
-      const emit = (frac, force) => {
-        frac = Math.max(0, Math.min(1, frac));
-        const now = Date.now();
-        if (typeof onProgress !== 'function' || frac < lastFrac) return;
-        if (!force && now - lastEmit < 100) return;
-        lastEmit = now; lastFrac = frac;
-        try { onProgress(frac); } catch { /* ignore */ }
-      };
-      proc.stdout.on('data', (d) => {
-        buf += d.toString();
-        let idx;
-        while ((idx = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, idx).trim();
-          buf = buf.slice(idx + 1);
-          const m = /^out_time(?:_us|_ms)=(\d+)/.exec(line);
-          if (m) emit(Number(m[1]) / 1e6 / total, false);
-        }
-      });
-      proc.stderr.on('data', (d) => { errTail = (errTail + d.toString()).slice(-4096); });
-      proc.on('error', (e) => reject(new Error(`Could not start ffmpeg: ${e.message}`)));
-      proc.on('close', (code, signal) => {
-        if (state.killTimer) clearTimeout(state.killTimer);
-        if (state.cancelled) return reject(abortError());
-        if (code === 0) { emit(1, true); return resolve(); }
-        reject(new Error(`ffmpeg failed (${code ?? signal}): ${errTail.trim()}`));
-      });
-    });
+    const encoder = opts.encoder || (await pickEncoder());
+    if (state.cancelled) throw abortError();
+    const attempt = (enc) => {
+      if (typeof opts.onAttempt === 'function') opts.onAttempt(enc);
+      return runFfmpeg(state, buildArgs(job, size, { frames: framePaths, output: partial }, enc), total, onProgress);
+    };
+    try {
+      await attempt(encoder);
+    } catch (e) {
+      if (encoder === SOFTWARE_ENCODER || state.cancelled || e.name === 'AbortError') throw e;
+      await rmQuiet(partial);
+      await attempt(SOFTWARE_ENCODER);
+    }
 
     await fs.promises.rename(partial, job.output);
     partial = null;
@@ -264,4 +324,4 @@ function cancel() {
 
 function isRunning() { return current !== null; }
 
-module.exports = { makeVideo, cancel, isRunning, buildArgs, probeJpegSize, validate };
+module.exports = { makeVideo, cancel, isRunning, buildArgs, encoderArgs, pickEncoder, listEncoders, probeJpegSize, validate };

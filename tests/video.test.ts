@@ -58,6 +58,46 @@ describe('video', () => {
     expect(args).toContain('-stream_loop');
   });
 
+  it('picks encoder args: x264 veryfast by default, bitrate-scaled VideoToolbox on request', () => {
+    const paths = { frames: ['a', 'b', 'c'], output: 'o.mp4' };
+    const soft: string[] = video.buildArgs(base(), { width: 320, height: 400 }, paths);
+    expect(soft.join(' ')).toContain('-c:v libx264 -preset veryfast -crf 20 -tune stillimage -threads 0');
+    expect(soft.join(' ')).toContain('scale=480:600'); // 1.5x Ken Burns pre-upscale
+    const hw: string[] = video.buildArgs(base(), { width: 1080, height: 1350 }, paths, 'h264_videotoolbox');
+    expect(hw).toContain('h264_videotoolbox');
+    expect(hw).not.toContain('libx264');
+    expect(hw[hw.indexOf('-b:v') + 1]).toBe('9622800');
+    expect(hw).toContain('-allow_sw');
+    expect(video.encoderArgs('h264_videotoolbox', { width: 1080, height: 1350 }, 30)[3]).toBe('12028500');
+  });
+
+  it('uses libx264 off macOS', async () => {
+    if (process.platform !== 'darwin') expect(await video.pickEncoder()).toBe('libx264');
+  });
+
+  // Runs on the macOS CI runner: proves the bundled ffmpeg's VideoToolbox path encodes without falling back.
+  it.runIf(process.platform === 'darwin')('encodes with VideoToolbox on macOS', async () => {
+    expect(await video.pickEncoder()).toBe('h264_videotoolbox');
+    const out = path.join(dir, 'vt.mp4');
+    const tried: string[] = [];
+    await video.makeVideo({ ...base(), output: out }, () => {}, { onAttempt: (e: string) => tried.push(e) });
+    expect(tried).toEqual(['h264_videotoolbox']);
+    expect(probe(out).codecs).toContain('h264');
+  }, 60000);
+
+  it('retries once with libx264 when the first encoder fails', async () => {
+    const out = path.join(dir, 'fallback.mp4');
+    const tried: string[] = [];
+    await video.makeVideo({ ...base(), kenBurns: false, durations: [1, 1, 1], output: out }, () => {}, { encoder: 'h264_nonexistent', onAttempt: (e: string) => tried.push(e) });
+    expect(tried).toEqual(['h264_nonexistent', 'libx264']);
+    expect(probe(out).codecs).toContain('h264');
+    expect(fs.readdirSync(dir).filter((f) => f.includes('partial'))).toEqual([]);
+    // a failing software encode is not retried
+    const tried2: string[] = [];
+    await expect(video.makeVideo({ ...base(), frames: [new Uint8Array([1, 2, 3])], durations: [1], output: path.join(dir, 'x2.mp4') }, () => {}, { onAttempt: (e: string) => tried2.push(e) })).rejects.toThrow();
+    expect(tried2.length).toBeLessThanOrEqual(1);
+  }, 60000);
+
   it('centres fades on the beat when beatSync is set, keeping the total length', () => {
     const args = (job: object): string => {
       const a: string[] = video.buildArgs(job, { width: 320, height: 400 }, { frames: ['a', 'b', 'c'], output: 'o.mp4' });

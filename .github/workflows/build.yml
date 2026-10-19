@@ -18,6 +18,8 @@ jobs:
           cache: npm
 
       - run: npm ci
+      # Electron fetches its binary lazily on first require; do it once here, not from parallel tests.
+      - run: node -e "require('electron')"
       # Unit tests probe rendered videos with ffprobe
       - run: brew install ffmpeg
       - run: npm run typecheck

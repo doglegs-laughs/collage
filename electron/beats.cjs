@@ -156,6 +156,7 @@ function workerSource() {
 const CACHE_SIZE = 4;
 const cache = new Map(); // key -> BeatAnalysis, least recently used first
 const inflight = new Map(); // key -> { promise, abort() }
+let latestFile = null; // the most recently requested track, set before any await so request order wins
 
 function abortError() {
   const e = new Error('Music analysis cancelled');
@@ -189,7 +190,11 @@ function decodeAndAnalyze(file) {
  */
 async function analyzeAudio(file) {
   if (typeof file !== 'string' || !file) throw new Error('Choose a music file first.');
+  latestFile = file;
   const stat = await fs.stat(file).catch(() => null);
+  // File checks can finish out of order: a request overtaken by a different track cancels itself
+  // rather than cancelling the newer one.
+  if (latestFile !== file) throw abortError();
   if (!stat?.isFile()) throw new Error('This music file is unavailable. Choose a local audio file again.');
   const key = `${file}\0${stat.mtimeMs}\0${stat.size}`;
   const hit = cache.get(key);

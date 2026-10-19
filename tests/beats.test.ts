@@ -100,6 +100,29 @@ describe('local beat detection', () => {
     }
   });
 
+  it('keeps the newest track when file checks finish out of order', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'beats-race-'));
+    const nodeFs = require('node:fs/promises') as typeof fs;
+    const stat = nodeFs.stat;
+    try {
+      const a = path.join(dir, 'slow.wav'), b = path.join(dir, 'fast.wav');
+      await fs.writeFile(a, wav(clicks(120, 8)));
+      await fs.writeFile(b, wav(clicks(100, 8)));
+      // The older request's file check finishes last, after the newer track has started.
+      nodeFs.stat = (async (p: string, ...rest: []) => {
+        if (p === a) await new Promise((r) => setTimeout(r, 200));
+        return stat(p, ...rest);
+      }) as typeof stat;
+      const older = analyzeAudio(a).then(() => 'done', (e: Error) => e.name);
+      const newer = analyzeAudio(b);
+      expect(Math.abs((await newer).bpm - 100)).toBeLessThanOrEqual(2);
+      expect(await older).toBe('AbortError');
+    } finally {
+      nodeFs.stat = stat;
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('decodes a real music file with FFmpeg and analyzes it in a worker', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'beats-'));
     try {
