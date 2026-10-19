@@ -32,10 +32,21 @@ function linkUnsupported(error) {
 // Writes next to the target then renames, so a crash never leaves a half-written file.
 // Without overwrite, an existing target is never replaced. Filesystems without
 // hard links use an exclusive copy instead (which cannot provide atomic visibility).
-async function atomicWrite(target, data, { overwrite = true } = {}) {
+async function atomicWrite(target, data, options = {}) {
+  const buffer = toBuffer(data);
+  return atomicPlace(target, (tmp) => fs.writeFile(tmp, buffer), options);
+}
+
+// Like atomicWrite, for a file that is already on disk (large videos are never read into memory).
+// The target always gets its own bytes, never a link to `source`.
+function atomicCopy(source, target, options = {}) {
+  return atomicPlace(target, (tmp) => fs.copyFile(source, tmp), options);
+}
+
+async function atomicPlace(target, fill, { overwrite = true } = {}) {
   const tmp = path.join(path.dirname(target), `.${path.basename(target)}.${randomUUID().slice(0, 8)}.tmp`);
   try {
-    await fs.writeFile(tmp, toBuffer(data));
+    await fill(tmp);
     if (overwrite) {
       await fs.rename(tmp, target);
       return;
@@ -115,4 +126,4 @@ async function writeSidecar(projectPath, jsonText, items) {
   return JSON.stringify(project, null, 2);
 }
 
-module.exports = { atomicWrite, readImage, exists, convertibleKind, writeSidecar };
+module.exports = { atomicWrite, atomicCopy, readImage, exists, convertibleKind, writeSidecar };

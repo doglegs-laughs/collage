@@ -5,6 +5,7 @@ const { atomicWrite, readImage, exists, writeSidecar } = require('./files.cjs');
 const video = require('./video.cjs');
 const store = require('./store.cjs');
 const { analyzeAudio } = require('./beats.cjs');
+const { createVideoCache, computeKey } = require('./video-cache.cjs');
 
 const isMac = process.platform === 'darwin';
 const devUrl = process.env.VITE_DEV_SERVER_URL;
@@ -248,18 +249,36 @@ function registerIpc() {
   ipcMain.handle('autosave:read', () => autosave.read());
   ipcMain.handle('autosave:clear', () => autosave.clear());
 
+  let videoCache = null;
+  const getVideoCache = () => (videoCache ??= createVideoCache(path.join(app.getPath('userData'), 'video-cache')));
+
+  // { key, hit }: key is null when the job cannot be cached.
+  ipcMain.handle('video:cache-lookup', async (_event, spec) => {
+    const key = await computeKey(spec, await video.pickEncoder());
+    return { key, hit: key ? !!(await getVideoCache().find(key)) : false };
+  });
+
   // Returns the output path, or '' when the user cancels the save dialog.
   ipcMain.handle('video:make', async (event, job) => {
+    const cacheKey = typeof job.cacheKey === 'string' ? job.cacheKey : null;
+    const cached = cacheKey ? await getVideoCache().find(cacheKey) : null;
+    if (cacheKey && !cached && !(Array.isArray(job.frames) && job.frames.length)) throw new Error('VIDEO_CACHE_MISS');
     let output = job.output;
     if (!output) {
       const r = await dialog.showSaveDialog(win(), { defaultPath: typeof job.suggestedName === 'string' && job.suggestedName ? path.basename(job.suggestedName) : 'story.mp4', filters: filterFor('MP4 video', ['mp4']) });
       if (r.canceled || !r.filePath) return '';
       output = r.filePath;
     }
+    if (cached) {
+      await getVideoCache().copyTo(cached, output);
+      return output;
+    }
     const sender = event.sender;
-    return video.makeVideo({ ...job, output }, (fraction) => {
+    const made = await video.makeVideo({ ...job, output }, (fraction) => {
       if (!sender.isDestroyed()) sender.send('video:progress', fraction);
     });
+    if (cacheKey) await getVideoCache().store(cacheKey, made).catch(() => {});
+    return made;
   });
   ipcMain.handle('video:cancel', () => video.cancel());
   ipcMain.on('app:set-dirty', (_e, value) => { dirty = value === true; if (!dirty) discardConfirmed = false; });

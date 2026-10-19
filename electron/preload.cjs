@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('menu:redo', redo);
     return () => { ipcRenderer.removeListener('menu:undo', undo); ipcRenderer.removeListener('menu:redo', redo); };
   },
+  videoCacheLookup: (spec) => invoke('video:cache-lookup', spec),
   makeVideo: (job) => invoke('video:make', job),
   onVideoProgress: (cb) => {
     const handler = (_event, fraction) => cb(fraction);

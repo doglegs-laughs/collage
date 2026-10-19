@@ -20,7 +20,11 @@ export interface VideoJob {
   kenBurnsPages?: boolean[];
   audioPath?: string;
   fps: number;
+  /** Cache key from `videoCacheLookup`. With no frames, the cached video is copied to the output; with frames, the finished video is kept in the cache under this key. */
+  cacheKey?: string;
 }
+
+export interface VideoCacheLookup { key: string | null; hit: boolean }
 
 /** A photo that has no file on disk (pasted, sent from Collage); saved beside the project so it can be found again. */
 export interface SidecarPhoto { id: string; name: string; data: Uint8Array }
@@ -42,6 +46,8 @@ export interface Api {
   writeFile(path: string, data: Uint8Array, options?: { overwrite?: boolean }): Promise<void>;
   exists(path: string): Promise<boolean>;
   /** Resolves to the output path, or '' if the user cancelled the save dialog. */
+  /** Whether a video for exactly this spec (see videoCacheSpec) was already made and kept. */
+  videoCacheLookup(spec: unknown): Promise<VideoCacheLookup>;
   makeVideo(job: VideoJob): Promise<string>;
   onVideoProgress(cb: (fraction: number) => void): () => void;
   cancelVideo(): Promise<void>;
@@ -122,6 +128,7 @@ const browserApi: Api = {
   chooseFolder: unsupported('Choosing a folder'),
   writeFile: unsupported('Writing to a folder'),
   exists: async () => false,
+  videoCacheLookup: async () => ({ key: null, hit: false }),
   makeVideo: unsupported('Making video'),
   onVideoProgress: () => () => {},
   cancelVideo: async () => {},

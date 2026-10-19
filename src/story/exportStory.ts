@@ -1,9 +1,10 @@
-import { api, type BeatAnalysis, type VideoJob } from '../api';
+import { api, type BeatAnalysis } from '../api';
 import { beatDurations, beatLoopSeconds } from './beatTiming';
 import { toJpeg } from '../core/canvas';
 import { getBitmapForSize } from '../core/images';
 import { crossesBoundary, evenPageSize, visibleIndices, visiblePages, type Story } from './model';
 import { renderPage, type GetBitmap, type PageCanvas } from './render';
+import { FRAME_JPEG_QUALITY, FrameCache, pageSignature, videoCacheSpec, type VideoPlan } from './videoCache';
 
 export type Progress = (done: number, total: number) => void;
 
@@ -65,6 +66,8 @@ export type VideoOptions = {
   beatSync?: { analysis: BeatAnalysis; beatsPerPage: number };
   signal?: AbortSignal;
   onProgress?: Progress;
+  /** Called when an identical video was already made, so nothing is rendered or encoded. */
+  onCached?: () => void;
 };
 export const DEFAULT_PAGE_SECONDS = 3;
 
@@ -86,12 +89,16 @@ export function videoDurations(story: Story, pageSeconds: number, musicSeconds?:
   return musicSeconds && musicSeconds > 0 && d.length ? fitDurations(d, musicSeconds) : d;
 }
 
-/** Transitions: 'slide' where an element crosses the seam, else the chosen one; Ken Burns off beside a slide. */
-export function videoTransitions(story: Story): { transitions: ('none' | 'crossfade' | 'slide')[]; kenBurnsPages: boolean[] } {
+/**
+ * Transitions: 'slide' where an element crosses the seam, else the chosen one; Ken Burns off beside a slide.
+ * With beat sync and no transition chosen, seams cut like every other boundary (the slide only returns when the user picks crossfade).
+ */
+export function videoTransitions(story: Story, beatSync = false): { transitions: ('none' | 'crossfade' | 'slide')[]; kenBurnsPages: boolean[] } {
   const idx = visibleIndices(story);
   const n = idx.length;
   // A seam only slides when its two pages are neighbours in the story; a hidden page between them makes it an ordinary cut.
-  const transitions = Array.from({ length: Math.max(0, n - 1) }, (_, k) => (idx[k + 1] === idx[k] + 1 && crossesBoundary(story, idx[k]) ? ('slide' as const) : story.video.transition));
+  const cuts = beatSync && story.video.transition === 'none';
+  const transitions = Array.from({ length: Math.max(0, n - 1) }, (_, k) => (!cuts && idx[k + 1] === idx[k] + 1 && crossesBoundary(story, idx[k]) ? ('slide' as const) : story.video.transition));
   const kenBurnsPages = idx.map((_, i) => story.video.kenBurns && transitions[i - 1] !== 'slide' && transitions[i] !== 'slide');
   return { transitions, kenBurnsPages };
 }
@@ -101,23 +108,39 @@ export function boundaryTransitionSeconds(durations: number[], seconds: number):
   return durations.slice(1).map((d, i) => Math.min(seconds, Math.min(durations[i], d) * 0.8));
 }
 
-export async function exportVideo(story: Story, o: VideoOptions): Promise<string> {
-  const { width } = evenPageSize(story.aspect, o.width);
+/** Frames of the pages for a video, reusing the ones rendered before for a page that has not changed since. */
+export const frameCache = new FrameCache();
+
+async function renderFrames(story: Story, width: number, signal: AbortSignal | undefined, onProgress: Progress | undefined): Promise<Uint8Array[]> {
+  const indices = visibleIndices(story);
   const frames: Uint8Array[] = [];
-  await renderAll(story, width, o.signal, o.onProgress, async (canvas) => {
-    frames.push(await toJpeg(canvas, 0.92));
-  });
-  check(o.signal);
+  for (let k = 0; k < indices.length; k++) {
+    check(signal);
+    onProgress?.(k, indices.length);
+    const sig = pageSignature(story, indices[k], width);
+    let frame = frameCache.get(sig);
+    if (!frame) {
+      const canvas = await renderPage(story, indices[k], width, getBitmapForSize as GetBitmap, { closeAfterDraw: true });
+      check(signal);
+      frame = await toJpeg(canvas, FRAME_JPEG_QUALITY);
+      if ('width' in canvas) { canvas.width = 0; canvas.height = 0; }
+      frameCache.set(sig, frame);
+    }
+    frames.push(frame);
+  }
+  onProgress?.(indices.length, indices.length);
+  return frames;
+}
+
+/** Everything about the video except its frames: timing, transitions, Ken Burns, music. */
+export function videoPlan(story: Story, o: Pick<VideoOptions, 'pageSeconds' | 'fitToMusicSeconds' | 'beatSync'>): VideoPlan {
   const durations = o.beatSync
     ? beatDurations(visibleIndices(story).length, o.beatSync.analysis, o.beatSync.beatsPerPage)
     : videoDurations(story, o.pageSeconds, o.fitToMusicSeconds);
   const v = story.video;
-  const { transitions, kenBurnsPages } = videoTransitions(story);
+  const { transitions, kenBurnsPages } = videoTransitions(story, !!o.beatSync);
   const perBoundary = boundaryTransitionSeconds(durations, v.transitionSeconds);
-  const job: VideoJob = {
-    output: '',
-    suggestedName: `${storyBaseName(story)}.mp4`,
-    frames,
+  return {
     durations,
     transition: v.transition,
     transitions,
@@ -129,7 +152,26 @@ export async function exportVideo(story: Story, o: VideoOptions): Promise<string
     ...(v.audioPath ? { audioPath: v.audioPath } : {}),
     ...(o.beatSync ? { beatSync: true, audioLoopSeconds: beatLoopSeconds(o.beatSync.analysis, o.beatSync.beatsPerPage) } : {}),
   };
-  return api.makeVideo(job);
+}
+
+/** Resolves to where the video was saved ('' when the user cancelled) and whether an earlier identical video was reused. */
+export async function exportVideo(story: Story, o: VideoOptions): Promise<{ path: string; cached: boolean }> {
+  const { width } = evenPageSize(story.aspect, o.width);
+  const plan = videoPlan(story, o);
+  const suggestedName = `${storyBaseName(story)}.mp4`;
+  let lookup: { key: string | null; hit: boolean } = { key: null, hit: false };
+  try { lookup = await api.videoCacheLookup(videoCacheSpec(story, width, plan)); } catch { /* the cache is optional */ }
+  if (lookup.key && lookup.hit) {
+    o.onCached?.();
+    try {
+      return { path: await api.makeVideo({ ...plan, output: '', suggestedName, frames: [], cacheKey: lookup.key }), cached: true };
+    } catch (e) {
+      if (!/VIDEO_CACHE_MISS/.test(e instanceof Error ? e.message : '')) throw e; // evicted since the lookup: render it after all
+    }
+  }
+  const frames = await renderFrames(story, width, o.signal, o.onProgress);
+  check(o.signal);
+  return { path: await api.makeVideo({ ...plan, output: '', suggestedName, frames, ...(lookup.key ? { cacheKey: lookup.key } : {}) }), cached: false };
 }
 
 /** Duration of an audio file in seconds, or null when it cannot be read. */
