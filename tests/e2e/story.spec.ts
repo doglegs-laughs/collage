@@ -151,6 +151,9 @@ test('make a story in one click, edit, undo, export images and video', async () 
   await page.getByTestId('video-go').click();
   await expect.poll(() => fs.existsSync(video) && fs.statSync(video).size > 1000, { timeout: 300_000 }).toBe(true);
   await expect(page.getByTestId('export-status')).toContainText('Video saved', { timeout: 60_000 });
+  // Nothing may sit on top of the Reveal link (a success toast used to cover it).
+  await expect(page.locator('.toast.show')).toHaveCount(0);
+  await page.getByTestId('export-reveal').click({ trial: true });
 });
 
 test('move, nudge, text edit and page management', async () => {

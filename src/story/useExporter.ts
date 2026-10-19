@@ -46,8 +46,8 @@ export function useExporter(getStory: () => Story) {
         onProgress: (d, t) => setJob({ kind: 'images', label: `Exporting ${Math.min(d + 1, t)} of ${t}`, fraction: d / t, startedAt }),
       });
       const message = `Saved ${r.files.length} image${r.files.length === 1 ? '' : 's'} to ${folder.split(/[\\/]/).pop()}`;
+      // The status bar shows the message with a Reveal link; a toast on top of it would cover the link.
       setDone({ message, reveal: r.files[0] ?? folder });
-      toast(message, 'success');
     } catch (e) {
       fail(e);
     } finally {
@@ -86,7 +86,6 @@ export function useExporter(getStory: () => Story) {
       if (!path) return;
       const message = `Video saved: ${path.split(/[\\/]/).pop()}`;
       setDone({ message, reveal: path });
-      toast(message, 'success');
     } catch (e) {
       fail(e);
     } finally {
