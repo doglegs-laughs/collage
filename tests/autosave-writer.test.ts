@@ -36,3 +36,43 @@ it('retries photo bytes after a rejected or unsuccessful save', async () => {
   expect(await write()).toBe(true);
   expect(autosaveWrite.mock.calls.map(([, sidecar]) => sidecar.length)).toEqual([1, 1, 1]);
 });
+
+it('coalesces writes queued behind a slow one into a single write of the latest state', async () => {
+  let release!: (ok: boolean) => void;
+  const autosaveWrite = vi.fn()
+    .mockReturnValueOnce(new Promise<boolean>((r) => { release = r; }))
+    .mockResolvedValue(true);
+  vi.stubGlobal('window', { api: { autosaveWrite } });
+  let story = { ...emptyStory(), title: 'v1', pages: [emptyPage()] };
+  const write = createAutosaveWriter(() => ({ story, thumb: null }));
+  const first = write();
+  await vi.waitFor(() => expect(autosaveWrite).toHaveBeenCalledOnce());
+  story = { ...story, title: 'v2' };
+  const debounced = write();
+  story = { ...story, title: 'v3' };
+  const flush = write();
+  expect(flush).toBe(debounced);
+  release(true);
+  expect(await first).toBe(true);
+  expect(await flush).toBe(true);
+  expect(autosaveWrite.mock.calls.map(([json]) => JSON.parse(json).title)).toEqual(['v1', 'v3']);
+});
+
+it('abandons a hung write after the timeout and keeps writing', async () => {
+  vi.useFakeTimers();
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const autosaveWrite = vi.fn().mockReturnValueOnce(new Promise<boolean>(() => {})).mockResolvedValue(true);
+    vi.stubGlobal('window', { api: { autosaveWrite } });
+    const story = { ...emptyStory(), pages: [emptyPage()] };
+    const write = createAutosaveWriter(() => ({ story, thumb: null }), 1000);
+    const hung = write();
+    const next = write();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await hung).toBe(false);
+    expect(await next).toBe(true);
+    expect(autosaveWrite).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});

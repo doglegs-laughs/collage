@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 type Sidecar = { id: string; name: string; data: Uint8Array };
 const { createAutosaveStore } = createRequire(import.meta.url)('../electron/store.cjs') as {
-  createAutosaveStore(dir: string): {
+  createAutosaveStore(dir: string, options?: { timeoutMs?: number }): {
     write(json: string, sidecar: Sidecar[], meta: object): Promise<void>;
     read(): Promise<{ json: string; meta: { title: string } } | null>;
     clear(): Promise<void>;
@@ -38,10 +38,9 @@ it('keeps the latest story, metadata and sidecar paths when a first save is slow
   const first = store.write(project('older'), sidecar, { title: 'older' });
   await pause.ready;
   const second = store.write(project('newer'), [], { title: 'newer' });
-  const read = store.read();
   pause.resume();
   await Promise.all([first, second]);
-  const saved = (await read)!;
+  const saved = (await store.read())!;
   expect(JSON.parse(saved.json).title).toBe('newer');
   expect(saved.meta.title).toBe('newer');
   const photoPath = JSON.parse(saved.json).photos[0].path;
@@ -67,4 +66,25 @@ it('recovers after a failed save', async () => {
   await expect(store.write('invalid json', [], {})).rejects.toThrow();
   await store.write(project('recovered'), sidecar, { title: 'recovered' });
   expect(JSON.parse((await store.read())!.json).title).toBe('recovered');
+});
+
+it('reads the last committed autosave while a write is still running', async () => {
+  const store = createAutosaveStore(dir);
+  await store.write(project('committed'), [], { title: 'committed' });
+  const pause = pauseFirstWrite();
+  const slow = store.write(project('slow'), [], { title: 'slow' });
+  await pause.ready;
+  expect(JSON.parse((await store.read())!.json).title).toBe('committed');
+  pause.resume();
+  await slow;
+});
+
+it('abandons a hung write so later operations still run', async () => {
+  const store = createAutosaveStore(dir, { timeoutMs: 50 });
+  vi.spyOn(fs, 'writeFile').mockImplementationOnce(() => new Promise<void>(() => {}));
+  await expect(store.write(project('hung'), [], {})).rejects.toThrow('timed out');
+  await store.write(project('next'), [], { title: 'next' });
+  expect(JSON.parse((await store.read())!.json).title).toBe('next');
+  await store.clear();
+  expect(await store.read()).toBeNull();
 });

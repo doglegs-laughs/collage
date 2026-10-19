@@ -10,17 +10,18 @@ export function useAutosave(story: Story, thumb: string | null) {
   const latest = useRef({ story, thumb });
   latest.current = { story, thumb };
   const timer = useRef<number | undefined>(undefined);
-  const write = useRef(createAutosaveWriter(() => latest.current));
+  const writer = useRef<ReturnType<typeof createAutosaveWriter> | null>(null);
+  const write = (): Promise<boolean> => (writer.current ??= createAutosaveWriter(() => latest.current))();
 
   useEffect(() => {
     if (!story.pages.length) return;
     window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => void write.current(), AUTOSAVE_DELAY_MS);
+    timer.current = window.setTimeout(() => void write(), AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(timer.current);
   }, [story]);
 
   useEffect(() => api.onAutosaveFlush(() => {
     window.clearTimeout(timer.current);
-    return write.current();
+    return write();
   }), []);
 }

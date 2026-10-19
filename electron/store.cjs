@@ -74,12 +74,25 @@ async function clearAutosave(dir) {
   await fs.rm(photosDir(dir), { recursive: true, force: true });
 }
 
-/** Serialize writes, reads and clears, including the sidecar path bookkeeping. */
-function createAutosaveStore(dir) {
+const OPERATION_TIMEOUT_MS = 20_000;
+
+/**
+ * Serialize writes and clears, including the sidecar path bookkeeping. Reads skip the queue: every file is replaced
+ * atomically, so they see the last committed autosave. An operation that hangs is abandoned after `timeoutMs` so it
+ * cannot block the ones behind it.
+ */
+function createAutosaveStore(dir, { timeoutMs = OPERATION_TIMEOUT_MS } = {}) {
   let paths = {};
   let pending = Promise.resolve();
+  const withTimeout = (operation) => {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Autosave operation timed out after ${timeoutMs} ms`)), timeoutMs);
+    });
+    return Promise.race([operation(), timeout]).finally(() => clearTimeout(timer));
+  };
   const enqueue = (operation) => {
-    const result = pending.then(operation);
+    const result = pending.then(() => withTimeout(operation));
     // A failed save must not prevent the next save or a clear from running.
     pending = result.catch(() => {});
     return result;
@@ -88,7 +101,7 @@ function createAutosaveStore(dir) {
     write: (json, sidecar, meta) => enqueue(async () => {
       paths = await writeAutosave(dir, json, sidecar, paths, meta);
     }),
-    read: () => enqueue(() => readAutosave(dir)),
+    read: () => readAutosave(dir),
     clear: () => enqueue(async () => {
       await clearAutosave(dir);
       paths = {};
