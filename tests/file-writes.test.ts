@@ -33,12 +33,7 @@ describe('exclusive file writes', () => {
   it('preserves a file created just before the fallback publishes its output', async () => {
     const target = path.join(dir, 'photo.jpg');
     vi.spyOn(fs, 'link').mockRejectedValue(Object.assign(new Error('unsupported'), { code: 'ENOTSUP' }));
-    // Reproduce the old check-then-rename race: access reports a missing file,
-    // but another writer creates it before the rename could replace it.
-    vi.spyOn(fs, 'access').mockImplementation(async () => {
-      await fs.writeFile(target, 'other writer');
-      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
-    });
+    // Another writer creates the target just before the exclusive copy publishes ours.
     const copy = fs.copyFile;
     vi.spyOn(fs, 'copyFile').mockImplementation(async (source, dest, flags) => {
       await fs.writeFile(target, 'other writer');
@@ -47,6 +42,43 @@ describe('exclusive file writes', () => {
     await expect(files.atomicWrite(target, Buffer.from('replacement'), { overwrite: false })).rejects.toThrow('already exists');
     expect(await fs.readFile(target, 'utf8')).toBe('other writer');
     expect(await fs.readdir(dir)).toEqual(['photo.jpg']);
+  });
+
+  it('removes a truncated target when the fallback copy fails part-way', async () => {
+    vi.spyOn(fs, 'link').mockRejectedValue(Object.assign(new Error('unsupported'), { code: 'ENOTSUP' }));
+    const target = path.join(dir, 'photo.jpg');
+    vi.spyOn(fs, 'copyFile').mockImplementation(async (_source, dest) => {
+      await fs.writeFile(dest, 'tru');
+      throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+    });
+    await expect(files.atomicWrite(target, Buffer.from('photo'), { overwrite: false })).rejects.toThrow('disk full');
+    expect(await fs.readdir(dir)).toEqual([]);
+  });
+
+  it('surfaces a real permission error instead of copying', async () => {
+    vi.spyOn(fs, 'link').mockRejectedValue(Object.assign(new Error('not permitted'), { code: 'EPERM' }));
+    const copy = vi.spyOn(fs, 'copyFile');
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    try {
+      await expect(files.atomicWrite(path.join(dir, 'photo.jpg'), Buffer.from('photo'), { overwrite: false })).rejects.toThrow('not permitted');
+    } finally {
+      Object.defineProperty(process, 'platform', platform);
+    }
+    expect(copy).not.toHaveBeenCalled();
+    expect(await fs.readdir(dir)).toEqual([]);
+  });
+
+  it('treats EPERM from link as unsupported hard links on Windows', async () => {
+    vi.spyOn(fs, 'link').mockRejectedValue(Object.assign(new Error('not permitted'), { code: 'EPERM' }));
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      await files.atomicWrite(path.join(dir, 'photo.jpg'), Buffer.from('photo'), { overwrite: false });
+    } finally {
+      Object.defineProperty(process, 'platform', platform);
+    }
+    expect(await fs.readFile(path.join(dir, 'photo.jpg'), 'utf8')).toBe('photo');
   });
 
   it('cleans up partial temporary files when writing fails', async () => {
