@@ -4,7 +4,7 @@ import { useToast } from '../ui/Toast';
 import { audioDuration, exportImages, exportVideo, isAbort } from './exportStory';
 import { visibleIndices, type Story } from './model';
 
-export type ExportJob = { kind: 'images' | 'video'; label: string; fraction: number | null };
+export type ExportJob = { kind: 'images' | 'video'; label: string; fraction: number | null; /** Date.now() when the export began, for the elapsed-time readout. */ startedAt: number };
 export type ExportDone = { message: string; reveal: string };
 export type VideoRequest = { width: number; pageSeconds: number; fitToMusic: boolean; beatSync?: { analysis: BeatAnalysis; beatsPerPage: number; audioPath: string } };
 
@@ -39,10 +39,11 @@ export function useExporter(getStory: () => Story) {
       const ctl = new AbortController();
       abort.current = ctl;
       const story = getStory();
-      setJob({ kind: 'images', label: 'Exporting images', fraction: 0 });
+      const startedAt = Date.now();
+      setJob({ kind: 'images', label: 'Exporting images', fraction: 0, startedAt });
       const r = await exportImages(story, {
         folder, width, signal: ctl.signal,
-        onProgress: (d, t) => setJob({ kind: 'images', label: `Exporting ${Math.min(d + 1, t)} of ${t}`, fraction: d / t }),
+        onProgress: (d, t) => setJob({ kind: 'images', label: `Exporting ${Math.min(d + 1, t)} of ${t}`, fraction: d / t, startedAt }),
       });
       const message = `Saved ${r.files.length} image${r.files.length === 1 ? '' : 's'} to ${folder.split(/[\\/]/).pop()}`;
       setDone({ message, reveal: r.files[0] ?? folder });
@@ -63,7 +64,8 @@ export function useExporter(getStory: () => Story) {
     const story = getStory();
     let off = () => {};
     try {
-      setJob({ kind: 'video', label: 'Preparing', fraction: null });
+      const startedAt = Date.now();
+      setJob({ kind: 'video', label: 'Preparing', fraction: null, startedAt });
       let music: number | null = null;
       if (req.beatSync && req.beatSync.audioPath !== story.video.audioPath) throw new Error('The music changed. Open video export and analyze it again.');
       if (!req.beatSync && req.fitToMusic && story.video.audioPath) {
@@ -71,14 +73,14 @@ export function useExporter(getStory: () => Story) {
         if (music === null) toast('Could not read the music length, so pages keep their own durations.', 'info');
       }
       off = api.onVideoProgress((f) => {
-        if (encoding.current) setJob({ kind: 'video', label: `Encoding video ${Math.round(f * 100)}%`, fraction: f });
+        if (encoding.current) setJob({ kind: 'video', label: `Encoding ${Math.round(f * 100)}%`, fraction: f, startedAt });
       });
       const total = visibleIndices(story).length;
       const path = await exportVideo(story, {
         width: req.width, pageSeconds: req.pageSeconds, fitToMusicSeconds: music, beatSync: req.beatSync, signal: ctl.signal,
         onProgress: (d, t) => {
-          if (d >= t) { encoding.current = true; setJob({ kind: 'video', label: 'Encoding video', fraction: 0 }); }
-          else setJob({ kind: 'video', label: `Rendering page ${d + 1} of ${total}`, fraction: null });
+          if (d >= t) { encoding.current = true; setJob({ kind: 'video', label: 'Encoding 0%', fraction: 0, startedAt }); }
+          else setJob({ kind: 'video', label: `Rendering pages ${d + 1} / ${total}`, fraction: d / t, startedAt });
         },
       });
       if (!path) return;

@@ -260,6 +260,7 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 .music-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12.5px; }
 .story-status { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 14px; max-width: min(560px, calc(100vw - 32px)); padding: 10px 16px; border-radius: 999px; background: var(--text); color: var(--bg); font-weight: 500; box-shadow: 0 16px 40px -12px #0f172a80; }
 .story-status .link { color: inherit; }
+.story-status .elapsed { font-variant-numeric: tabular-nums; opacity: .8; }
 .status-bar { width: 140px; height: 6px; border-radius: 999px; background: #ffffff33; overflow: hidden; }
 .status-bar > span { display: block; height: 100%; background: #fff; transition: width .2s; }
 .status-bar > .indeterminate { animation: slide 1.1s ease-in-out infinite alternate; }
