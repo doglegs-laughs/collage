@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, type BeatAnalysis } from '../api';
-import { computeTimeline } from './timeline';
+import { computeTimeline, fitToMusicApplies, timelineOptions } from './timeline';
 import { Button, Segmented, Slider } from '../ui/Controls';
 import { useToast } from '../ui/Toast';
 import { Check, Field } from './fields';
@@ -57,7 +57,7 @@ type VideoProps = {
 export function VideoDialog({ story, onVideo, onExport, onClose, onEditTiming }: VideoProps) {
   const toast = useToast();
   const v = story.video;
-  const [pageSeconds, setPageSeconds] = useState(3);
+  const pageSeconds = v.pageSeconds ?? 3; // kept in the story, so the Timeline panel and the export use the same value
   const [width, setWidth] = useState<'720' | '1080'>('1080');
   const size = evenPageSize(story.aspect, Number(width));
   const music = v.audioPath?.split(/[\\/]/).pop() ?? null;
@@ -102,7 +102,7 @@ export function VideoDialog({ story, onVideo, onExport, onClose, onEditTiming }:
       )}
       <Check label="Slow zoom (Ken Burns)" checked={v.kenBurns} onChange={(k) => onVideo({ kenBurns: k })} />
       {!sync && <Field label="Seconds per page" className="gap-top">
-        <Slider label="Seconds per page" value={pageSeconds} min={1} max={10} step={0.5} format={(x) => `${x.toFixed(1)} s`} onChange={setPageSeconds} />
+        <Slider label="Seconds per page" value={pageSeconds} min={1} max={10} step={0.5} format={(x) => `${x.toFixed(1)} s`} onChange={(x) => onVideo({ pageSeconds: x })} />
       </Field>}
       <Field label="Music (optional)">
         <div className="music-row">
@@ -118,15 +118,15 @@ export function VideoDialog({ story, onVideo, onExport, onClose, onEditTiming }:
         </Field>
         <p className="hint" role="status" data-testid="beat-status">
           {error ? <>{error} <button type="button" className="link" onClick={() => setRetry((r) => r + 1)}>Retry</button></>
-            : detected ? `${detected.bpm} BPM · ${detected.beats.length} beats detected · ${computeTimeline(story, { analysis: detected, beatsPerPage: v.beatsPerPage }).total.toFixed(1)} s video`
+            : detected ? `${detected.bpm} BPM · ${detected.beats.length} beats detected · ${computeTimeline(story, timelineOptions(story, { pageSeconds, beatSync: { analysis: detected, beatsPerPage: v.beatsPerPage } })).total.toFixed(1)} s video`
               : 'Detecting music beats…'}
         </p>
         <p className="hint">Each page stays for {v.beatsPerPage} beats. Beat timing replaces manual page durations. Short tracks repeat with the video.</p>
       </>}
-      <Check label="Fit to music length" checked={v.fitToMusic && !!music && !sync && !v.timeline} disabled={!music || sync || !!v.timeline} onChange={(f) => onVideo({ fitToMusic: f })} />
+      <Check label="Fit to music length" checked={fitToMusicApplies(v, sync)} disabled={!music || sync} onChange={(f) => onVideo({ fitToMusic: f })} />
       {onEditTiming && (
         <p className="hint" data-testid="video-timing-note">
-          {v.timeline ? 'Custom timing from the Timeline is used (fit to music is off). ' : 'Want to stretch some pages or line cuts up with the beat by hand? '}
+          {v.timeline ? 'Custom timing from the Timeline is used; fit to music only stretches pages whose length you did not set. ' : 'Want to stretch some pages or line cuts up with the beat by hand? '}
           <button type="button" className="link" onClick={onEditTiming} data-testid="video-edit-timing">Edit timing…</button>
         </p>
       )}
@@ -136,7 +136,7 @@ export function VideoDialog({ story, onVideo, onExport, onClose, onEditTiming }:
       <p className="hint">{visibleIndices(story).length} pages, {size.width} × {size.height} px, 30 fps. {!sync && 'Pages whose duration you changed keep it. '}Seams crossed by a panorama or split photo slide as one move.</p>
       <div className="btn-row end">
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" data-testid="video-go" disabled={sync && !detected} onClick={() => { onClose(); onExport({ width: Number(width), pageSeconds, fitToMusic: v.fitToMusic && !!music && !sync && !v.timeline, ...(sync && detected && v.audioPath ? { beatSync: { analysis: detected, beatsPerPage: v.beatsPerPage, audioPath: v.audioPath } } : {}) }); }}>Make video…</Button>
+        <Button variant="primary" data-testid="video-go" disabled={sync && !detected} onClick={() => { onClose(); onExport({ width: Number(width), pageSeconds, fitToMusic: fitToMusicApplies(v, sync), ...(sync && detected && v.audioPath ? { beatSync: { analysis: detected, beatsPerPage: v.beatsPerPage, audioPath: v.audioPath } } : {}) }); }}>Make video…</Button>
       </div>
     </Modal>
   );

@@ -83,10 +83,10 @@ test('edits clip lengths against the beats, changes a transition, undoes, and ex
     await expect(panel.getByTestId('tl-snapline')).toBeVisible();
     await page.mouse.up();
     await expect(first).toHaveAttribute('data-locked', 'true');
-    expect(Math.abs(Number(await first.getAttribute('data-duration')) - target)).toBeLessThan(0.002); // landed exactly on the beat
+    expect(Math.abs(Number(await first.getAttribute('data-duration')) - target)).toBeLessThanOrEqual(0.5 / 30 + 0.001); // on the beat, to within half a frame (lengths are whole frames)
     await expect(first.getByTestId('tl-lock')).toBeVisible();
     await expect(clips.nth(1)).toHaveAttribute('data-locked', 'false');
-    const total = 9 - 3 + target;
+    const total = 9 - 3 + Math.round(target * 30) / 30;
     await expect(panel.getByTestId('tl-total')).toHaveAttribute('data-seconds', (Math.round(total * 1000) / 1000).toFixed(3));
 
     // A boundary transition: crossfade -> slide.

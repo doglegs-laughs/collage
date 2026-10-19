@@ -1,10 +1,10 @@
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import type { BeatAnalysis } from '../src/api';
-import { beatClock, beatDurations } from '../src/story/beatTiming';
+import { beatClock, beatDurations, beatLoopSeconds } from '../src/story/beatTiming';
 import { videoDurations, videoPlan, videoTransitions } from '../src/story/exportStory';
-import { deserializeStory, emptyPage, emptyStory, serializeStory, type Story } from '../src/story/model';
-import { clipAtTime, computeTimeline, editTimeline, lockClip, resyncFrom, setAudioOffset, setBoundaryTransition, unlockClip } from '../src/story/timeline';
+import { deserializeStory, emptyPage, emptyStory, normalizeTimeline, removePage, serializeStory, type Story } from '../src/story/model';
+import { clipAtTime, computeTimeline, editTimeline, fitToMusicApplies, lockClip, musicLoopSeconds, patchVideo, resetTimeline, resyncFrom, setAudioOffset, setBoundaryTransition, snapToFrames, timelineOptions, unlockClip } from '../src/story/timeline';
 import { videoCacheSpec } from '../src/story/videoCache';
 import { clicks, RATE } from './helpers/wav';
 
@@ -224,5 +224,195 @@ describe('waveform peaks', () => {
     expect(computePeaks(new Float32Array(RATE), 10)).toEqual(new Array(10).fill(0));
     expect(computePeaks(Float32Array.from([0.5, -1, 0.25, 0]), 2)).toEqual([1, 0.25]);
     expect(computePeaks(new Float32Array(RATE * 400)).length).toBe(12000);
+  });
+});
+
+describe('changing the music', () => {
+  it('resets the music start and drops a timeline that becomes empty', () => {
+    let s = setAudioOffset(make(3), 2.5);
+    expect(s.video.timeline!.audioOffset).toBe(2.5);
+    const changed = patchVideo(s, { audioPath: '/other.wav' });
+    expect(changed.video.audioPath).toBe('/other.wav');
+    expect(changed.video.timeline).toBeUndefined();
+    expect(patchVideo(s, { audioPath: null, fitToMusic: false }).video.timeline).toBeUndefined();
+    // Manual lengths survive; only the start is forgotten.
+    s = lockClip(s, s.pages[0].id, 4);
+    expect(patchVideo(s, { audioPath: '/other.wav' }).video.timeline).toEqual({ audioOffset: 0, locked: { [s.pages[0].id]: 4 }, transitions: {} });
+  });
+
+  it('keeps the music start when the music does not change, and for other settings', () => {
+    const s = setAudioOffset(make(2), 1.5);
+    expect(patchVideo(s, { audioPath: '/music.wav' }).video.timeline!.audioOffset).toBe(1.5);
+    expect(patchVideo(s, { kenBurns: true }).video.timeline!.audioOffset).toBe(1.5);
+  });
+});
+
+describe('one set of timeline options for panel and export', () => {
+  it('panel and export totals match for the dialog seconds per page, with and without beat sync', () => {
+    let s = make(4);
+    s.video.pageSeconds = 4.5;
+    s.pages[1].duration = 7; // an own duration stays
+    const panel = computeTimeline(s, timelineOptions(s));
+    expect(panel.total).toBeCloseTo(4.5 * 3 + 7);
+    expect(sum(videoPlan(s, { pageSeconds: 4.5 }).durations)).toBeCloseTo(panel.total, 9);
+    s = lockClip(s, s.pages[2].id, 2);
+    const withLock = computeTimeline(s, timelineOptions(s));
+    expect(sum(videoPlan(s, { pageSeconds: 4.5 }).durations)).toBeCloseTo(withLock.total, 9);
+    const beatSync = { analysis, beatsPerPage: 2 };
+    const panelBeats = computeTimeline(s, timelineOptions(s, { beatSync }));
+    expect(videoPlan(s, { pageSeconds: 4.5, beatSync }).durations).toEqual(panelBeats.clips.map((c) => c.duration));
+  });
+
+  it('the story-level seconds per page is the default; an explicit dialog value wins', () => {
+    const s = make(2);
+    expect(timelineOptions(s).pageSeconds).toBe(3);
+    s.video.pageSeconds = 5;
+    expect(timelineOptions(s).pageSeconds).toBe(5);
+    expect(timelineOptions(s, { pageSeconds: 6 }).pageSeconds).toBe(6);
+  });
+
+  it('seconds per page survives saving and is validated on load', () => {
+    const s = make(2);
+    s.video.pageSeconds = 4;
+    expect(deserializeStory(serializeStory(s)).video.pageSeconds).toBe(4);
+    const json = JSON.parse(serializeStory(s));
+    json.video.pageSeconds = 'x';
+    expect(deserializeStory(JSON.stringify(json)).video.pageSeconds).toBeUndefined();
+    json.video.pageSeconds = 99;
+    expect(deserializeStory(JSON.stringify(json)).video.pageSeconds).toBe(10);
+  });
+});
+
+describe('an empty timeline is no timeline', () => {
+  it('is absent after loading one that says nothing', () => {
+    const s = make(2);
+    const json = JSON.parse(serializeStory(s));
+    json.video.timeline = { audioOffset: 0, locked: {}, transitions: {} };
+    expect('timeline' in deserializeStory(JSON.stringify(json)).video).toBe(false);
+    json.video.timeline = { audioOffset: 0, locked: { gone: 3 }, transitions: { gone: 'none' } };
+    expect('timeline' in deserializeStory(JSON.stringify(json)).video).toBe(false);
+  });
+
+  it('deleting a page drops its stale entries at once, and the whole timeline when nothing is left', () => {
+    let s = make(3);
+    s = setBoundaryTransition(lockClip(s, s.pages[1].id, 4), s.pages[2].id, 'none');
+    const gone = removePage(s, 1);
+    expect(gone.video.timeline).toEqual({ audioOffset: 0, locked: {}, transitions: { [s.pages[2].id]: 'none' } });
+    const only = lockClip(make(2), 'placeholder', 3); // unknown id: nothing real to keep
+    expect(normalizeTimeline(only).video.timeline).toBeUndefined();
+    const two = make(2);
+    expect(removePage(lockClip(two, two.pages[1].id, 3), 1).video.timeline).toBeUndefined();
+  });
+
+  it('normalizeTimeline drops unknown pages, removes an empty timeline, and returns the same story when nothing changes', () => {
+    const other = make(2);
+    const fresh = make(2); // other page ids, as after shuffling the whole story
+    const stale = { ...fresh, video: { ...fresh.video, timeline: lockClip(other, other.pages[0].id, 3).video.timeline } };
+    expect(normalizeTimeline(stale).video.timeline).toBeUndefined();
+    const ok = lockClip(fresh, fresh.pages[0].id, 3);
+    expect(normalizeTimeline(ok)).toBe(ok);
+    const keepOffset = { ...ok, video: { ...ok.video, timeline: { audioOffset: 1, locked: { nope: 2 }, transitions: {} } } };
+    expect(normalizeTimeline(keepOffset).video.timeline).toEqual({ audioOffset: 1, locked: {}, transitions: {} });
+    expect(normalizeTimeline(fresh)).toBe(fresh);
+  });
+
+  it('resetTimeline removes everything', () => {
+    const s = make(2);
+    expect(resetTimeline(setAudioOffset(lockClip(s, s.pages[0].id, 3), 1)).video.timeline).toBeUndefined();
+  });
+});
+
+describe('whole frames', () => {
+  const frames = (d: number[], fps = 30) => d.map((x) => Math.round(x * fps));
+
+  it('locked lengths snap to whole frames', () => {
+    expect(snapToFrames(1.234)).toBeCloseTo(37 / 30, 12);
+    const p = make(3);
+    const locked = lockClip(lockClip(p, p.pages[0].id, 1.234), p.pages[1].id, 2.718);
+    for (const c of computeTimeline(locked).clips.slice(0, 2)) expect(Math.abs(c.duration * 30 - Math.round(c.duration * 30))).toBeLessThan(1e-9);
+    // Loaded values that are not on a frame are snapped by the engine as well.
+    const raw = make(2);
+    raw.video.timeline = { audioOffset: 0, locked: { [raw.pages[0].id]: 1.2345 }, transitions: {} };
+    expect(computeTimeline(raw).clips[0].duration).toBeCloseTo(37 / 30, 12);
+  });
+
+  it('per-page frame counts add up to round(total * fps)', () => {
+    let s = make(6);
+    [1.234, 2.718, 0.777, 3.333, 1.111].forEach((x, i) => { s = lockClip(s, s.pages[i].id, x); });
+    const beatSync = { analysis, beatsPerPage: 2 };
+    for (const sync of [undefined, beatSync]) {
+      const tl = computeTimeline(s, sync ? { analysis, beatsPerPage: 2 } : {});
+      const perPage = sum(frames(tl.clips.map((c) => c.duration)));
+      expect(perPage).toBe(Math.round(tl.total * 30));
+      expect(sum(frames(videoPlan(s, { pageSeconds: 3, beatSync: sync }).durations))).toBe(perPage);
+    }
+  });
+
+  it('with beat sync, the boundary after an unlocked clip stays on a beat to within half a frame', () => {
+    let s = make(6, 'none');
+    s = lockClip(s, s.pages[1].id, 1.27);
+    s = lockClip(s, s.pages[3].id, 0.83);
+    const tl = computeTimeline(s, { analysis, beatsPerPage: 2 });
+    let checked = 0;
+    tl.clips.forEach((c) => {
+      if (c.locked) return;
+      checked++;
+      expect(analysis.beats.some((b) => Math.abs(b - (c.start + c.duration)) <= 0.5 / 30 + 1e-9)).toBe(true);
+    });
+    expect(checked).toBeGreaterThan(2);
+    expect(sum(frames(tl.clips.map((c) => c.duration)))).toBe(Math.round(tl.total * 30));
+  });
+});
+
+describe('fit to music', () => {
+  const fit = (s: Story, music: number) => videoPlan(s, { pageSeconds: 3, fitToMusicSeconds: music });
+
+  it('is one rule: on, with music, not beat synced', () => {
+    expect(fitToMusicApplies({ fitToMusic: true, audioPath: '/a.wav' }, false)).toBe(true);
+    expect(fitToMusicApplies({ fitToMusic: true, audioPath: '/a.wav' }, true)).toBe(false);
+    expect(fitToMusicApplies({ fitToMusic: true, audioPath: null }, false)).toBe(false);
+    expect(fitToMusicApplies({ fitToMusic: false, audioPath: '/a.wav' }, false)).toBe(false);
+  });
+
+  it('stretches pages to the song, and a timeline of transition overrides does not switch it off', () => {
+    const s = make(4);
+    s.video.fitToMusic = true;
+    const plain = fit(s, 20);
+    const total = sum(plain.durations);
+    expect(total).toBeLessThanOrEqual(20);
+    expect(total).toBeGreaterThan(19.8);
+    const withTransitions = setBoundaryTransition(s, s.pages[1].id, 'none');
+    expect(withTransitions.video.timeline).toBeDefined();
+    expect(fit(withTransitions, 20).durations).toEqual(plain.durations);
+    expect(fit(withTransitions, 20).transitions?.[1]).toBe('none');
+  });
+
+  it('with locked clips only the unlocked ones are scaled', () => {
+    let s = make(4);
+    s.video.fitToMusic = true;
+    s = lockClip(s, s.pages[0].id, 5);
+    const plan = fit(s, 20);
+    expect(plan.durations[0]).toBe(5);
+    const rest = plan.durations.slice(1);
+    expect(rest[0]).toBe(rest[1]);
+    expect(sum(plan.durations)).toBeLessThanOrEqual(20);
+    expect(sum(plan.durations)).toBeGreaterThan(19.8);
+    expect(computeTimeline(s, timelineOptions(s, { fitToMusicSeconds: 20 })).total).toBeCloseTo(sum(plan.durations), 9);
+    // Locked clips that already fill the song leave the others alone.
+    const tight = lockClip(s, s.pages[1].id, 30);
+    expect(fit(tight, 20).durations.slice(2)).toEqual([3, 3]);
+  });
+
+  it('is off when the story does not ask for it', () => {
+    expect(sum(fit(make(4), 20).durations)).toBe(12);
+  });
+});
+
+describe('music loop point', () => {
+  it('is the beat grid loop with beat sync, else the length of the file', () => {
+    expect(musicLoopSeconds(analysis, 2, true)).toBeCloseTo(beatLoopSeconds(analysis, 2));
+    expect(musicLoopSeconds(analysis, 2, false)).toBe(8);
+    expect(musicLoopSeconds(undefined, 2, true)).toBeNull();
+    expect(musicLoopSeconds({ beats: [], bpm: 0, duration: 6, noBeats: true }, 2, true)).toBe(6);
   });
 });

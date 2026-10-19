@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { useHistory, type History } from '../core/history';
 import type { Photo } from '../core/images';
 import { makeStory } from './autofill';
-import { DEFAULT_VIDEO, emptyStory, type Aspect, type StyleId, type Story } from './model';
+import { DEFAULT_VIDEO, emptyStory, normalizeTimeline, type Aspect, type StyleId, type Story } from './model';
 import { newSeed, setRoleText } from './storyOps';
 
 export type GenerateOpts = { style?: StyleId; aspect?: Aspect; title?: string; subtitle?: string; seed?: number };
@@ -52,13 +52,14 @@ export function useStory(): StoryState {
     setSeed(nextSeed);
     const next: Story = { ...s, style, aspect, title, pages, photos, ...(subtitleText ? { subtitle: subtitleText } : {}) };
     if (!subtitleText) delete next.subtitle;
-    set(next);
+    const normalized = normalizeTimeline(next); // a regenerated story has new page ids
+    set(normalized);
     // Laying out a story from nothing is not unsaved work yet; anything after it is.
-    if (!s.pages.length) setBaseline(next);
+    if (!s.pages.length) setBaseline(normalized);
     return pages.length;
   }, [set]);
 
-  const mutate = useCallback((fn: (s: Story) => Story, key?: string) => set(fn, key), [set]);
+  const mutate = useCallback((fn: (s: Story) => Story, key?: string) => set((s) => normalizeTimeline(fn(s)), key), [set]);
 
   const setTitle = useCallback((title: string) => {
     set((s) => ({ ...setRoleText(s, 'title', title), title }), 'story-title');

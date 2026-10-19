@@ -19,6 +19,7 @@ import { StoryEmpty, type MakeOpts } from './StoryEmpty';
 import { StoryInspector } from './StoryInspector';
 import { StoryStage, type DropHit } from './StoryStage';
 import { StoryTopbar } from './StoryTopbar';
+import { patchVideo } from './timeline';
 import { TimelinePanel } from './timeline/TimelinePanel';
 import { addTitlePage, addTitleToPage, newSeed, setRoleFont } from './storyOps';
 import { useEditor } from './useEditor';
@@ -279,7 +280,7 @@ export function StoryView() {
         <VideoDialog
           story={story} onClose={() => setPanel(null)} onExport={(r) => void exporter.video(r)}
           onEditTiming={() => { setPanel(null); setTimelineOpen(true); }}
-          onVideo={(patch) => st.mutate((s) => ({ ...s, video: { ...s.video, ...patch } }), 'video-settings')}
+          onVideo={(patch) => st.mutate((s) => patchVideo(s, patch), 'video-settings')}
         />
       )}
       <ExportStatus job={exporter.job} done={exporter.done} onCancel={exporter.cancel} onClear={exporter.clearDone} />

@@ -1,6 +1,6 @@
 import type { BeatAnalysis } from '../api';
-import { beatClock, MIN_BEAT_PAGE_SECONDS } from './beatTiming';
-import { crossesBoundary, MAX_CLIP_SECONDS, MIN_CLIP_SECONDS, visibleIndices, type BoundaryTransition, type Story, type Timeline } from './model';
+import { beatClock, beatLoopSeconds, hasBeats, MIN_BEAT_PAGE_SECONDS } from './beatTiming';
+import { crossesBoundary, MAX_CLIP_SECONDS, MIN_CLIP_SECONDS, timelineIsEmpty, visibleIndices, type BoundaryTransition, type Story, type Timeline, type VideoSettings } from './model';
 
 export const DEFAULT_PAGE_SECONDS = 3;
 export const TIMELINE_FPS = 30;
@@ -24,7 +24,45 @@ export type TimelineOptions = {
   /** Used where a boundary has no override. Defaults to the story's own transition. */
   defaultTransition?: 'none' | 'crossfade';
   fps?: number;
+  /**
+   * Fit to music: length of the song. Unlocked clips (without beat sync) are scaled down together so the video is at most that long;
+   * locked clips keep their length. Ignored when the locked clips alone already fill the song.
+   */
+  fitToMusicSeconds?: number | null;
 };
+
+/** What the video dialog decides besides the story itself. Everything has a story-level default, so panel and export agree. */
+export type DialogSettings = {
+  /** Overrides `story.video.pageSeconds`. */
+  pageSeconds?: number;
+  /** Present when beat sync is on and the music was analysed. */
+  beatSync?: { analysis: BeatAnalysis; beatsPerPage: number };
+  /** Length of the music when fit to music is wanted and known. */
+  fitToMusicSeconds?: number | null;
+};
+
+/** Fit to music applies when it is on, there is music, and photo changes are not already following the beats. */
+export const fitToMusicApplies = (video: Pick<VideoSettings, 'fitToMusic' | 'audioPath'>, beatSync: boolean): boolean => video.fitToMusic && !!video.audioPath && !beatSync;
+
+/**
+ * The single place that turns a story plus the video dialog's choices into timeline options. The Timeline panel and the export
+ * both call it, so they always show and make the same video (seconds per page, beat sync, fit to music).
+ */
+export function timelineOptions(story: Story, d: DialogSettings = {}): TimelineOptions {
+  const v = story.video;
+  const beat = d.beatSync;
+  return {
+    pageSeconds: d.pageSeconds ?? v.pageSeconds ?? DEFAULT_PAGE_SECONDS,
+    ...(beat ? { analysis: beat.analysis, beatsPerPage: beat.beatsPerPage } : {}),
+    ...(!beat && fitToMusicApplies(v, false) && d.fitToMusicSeconds && d.fitToMusicSeconds > 0 ? { fitToMusicSeconds: d.fitToMusicSeconds } : {}),
+  };
+}
+
+/** Where the music repeats in the preview and the export: the beat grid's loop with beat sync, else the end of the file (null = ask the audio element). */
+export function musicLoopSeconds(analysis: BeatAnalysis | undefined, beatsPerPage: number, beatSync: boolean): number | null {
+  if (beatSync && hasBeats(analysis)) return beatLoopSeconds(analysis, beatsPerPage);
+  return analysis && analysis.duration > 0 ? analysis.duration : null;
+}
 
 /**
  * Transition at each boundary of the visible pages when nothing overrides it: 'slide' where an element crosses the seam,
@@ -42,7 +80,9 @@ export function boundaryTransitionSeconds(durations: number[], seconds: number):
   return durations.slice(1).map((d, i) => Math.min(seconds, Math.min(durations[i], d) * 0.8));
 }
 
-const clampClip = (s: number) => Math.min(MAX_CLIP_SECONDS, Math.max(MIN_CLIP_SECONDS, s));
+export const clampClip = (s: number) => Math.min(MAX_CLIP_SECONDS, Math.max(MIN_CLIP_SECONDS, s));
+/** `seconds` rounded to a whole number of frames, so the exporter's per-page frame rounding never drifts from the timeline. */
+export const snapToFrames = (seconds: number, fps = TIMELINE_FPS): number => Math.round(seconds * fps) / fps;
 
 /**
  * Where every visible page starts and how long it lasts.
@@ -58,18 +98,34 @@ export function computeTimeline(story: Story, o: TimelineOptions = {}): Computed
   const clock = o.analysis ? beatClock(o.analysis, bpp, tl?.audioOffset ?? 0) : null;
   const minFrames = Math.max(1, Math.ceil(MIN_BEAT_PAGE_SECONDS * fps - 1e-9));
   const clips: TimelineClip[] = [];
+  // Fit to music: scale the unlocked clips so everything adds up to the song (locked ones keep their length).
+  let fit = 1;
+  if (!clock && o.fitToMusicSeconds && o.fitToMusicSeconds > 0) {
+    let fixed = 0, free = 0;
+    for (const pageIndex of idx) {
+      const page = story.pages[pageIndex];
+      const lock = tl?.locked[page.id];
+      if (lock !== undefined) fixed += snapToFrames(clampClip(lock), fps);
+      else free += Math.abs(page.duration - DEFAULT_PAGE_SECONDS) < 1e-6 && o.pageSeconds !== undefined ? o.pageSeconds : page.duration;
+    }
+    const room = o.fitToMusicSeconds - fixed;
+    if (free > 0 && room > 0) fit = room / free;
+  }
   let t = 0;
   for (const pageIndex of idx) {
     const page = story.pages[pageIndex];
     const lock = tl?.locked[page.id];
     let duration: number;
-    if (lock !== undefined) duration = clampClip(lock);
+    if (lock !== undefined) duration = snapToFrames(clampClip(lock), fps);
     else if (clock) {
       let beat = clock.indexAtOrAfter(t, 0.5 / fps) + bpp;
       let end = Math.round(clock.at(beat) * fps);
       while (end - t * fps < minFrames - 1e-9) end = Math.round(clock.at(++beat) * fps);
       duration = Math.round((end / fps - t) * 1e9) / 1e9; // undo float drift from the running sum
-    } else duration = Math.abs(page.duration - DEFAULT_PAGE_SECONDS) < 1e-6 && o.pageSeconds !== undefined ? o.pageSeconds : page.duration;
+    } else {
+      duration = Math.abs(page.duration - DEFAULT_PAGE_SECONDS) < 1e-6 && o.pageSeconds !== undefined ? o.pageSeconds : page.duration;
+      if (fit !== 1) duration = Math.max(1, Math.floor(duration * fit * fps + 1e-9)) / fps; // whole frames, rounded down so the video never outlasts the song
+    }
     clips.push({ pageId: page.id, pageIndex, start: t, duration, locked: lock !== undefined });
     t += duration;
   }
@@ -92,18 +148,17 @@ export function clipAtTime(tl: ComputedTimeline, t: number): number {
 
 /* ---------- editing (pure; every function returns a new story) ---------- */
 
-const isEmpty = (t: Timeline) => t.audioOffset === 0 && !Object.keys(t.locked).length && !Object.keys(t.transitions).length;
 
 /** Apply `fn` to the story's timeline (created on demand); a timeline left with nothing in it is removed again. */
 export function editTimeline(story: Story, fn: (t: Timeline) => Timeline): Story {
   const next = fn({ audioOffset: 0, locked: {}, transitions: {}, ...story.video.timeline });
   const { timeline: _old, ...video } = story.video;
   void _old;
-  return { ...story, video: isEmpty(next) ? video : { ...video, timeline: next } };
+  return { ...story, video: timelineIsEmpty(next) ? video : { ...video, timeline: next } };
 }
 
 export const lockClip = (story: Story, pageId: string, seconds: number): Story =>
-  editTimeline(story, (t) => ({ ...t, locked: { ...t.locked, [pageId]: Math.round(clampClip(seconds) * 1000) / 1000 } }));
+  editTimeline(story, (t) => ({ ...t, locked: { ...t.locked, [pageId]: snapToFrames(clampClip(seconds)) } }));
 
 export const unlockClip = (story: Story, pageId: string): Story =>
   editTimeline(story, (t) => {
@@ -131,3 +186,15 @@ export function setBoundaryTransition(story: Story, pageId: string, kind: Bounda
 
 export const setAudioOffset = (story: Story, seconds: number): Story =>
   editTimeline(story, (t) => ({ ...t, audioOffset: Math.max(0, Math.round(seconds * 1000) / 1000) }));
+
+/** Remove every manual length, transition override and music start. */
+export const resetTimeline = (story: Story): Story => editTimeline(story, () => ({ audioOffset: 0, locked: {}, transitions: {} }));
+
+/**
+ * Change video settings. Choosing different music (or none) forgets the music start, which belonged to the old song;
+ * a timeline left with nothing in it is removed. One call is one undo step.
+ */
+export function patchVideo(story: Story, patch: Partial<VideoSettings>): Story {
+  const next: Story = { ...story, video: { ...story.video, ...patch } };
+  return 'audioPath' in patch && patch.audioPath !== story.video.audioPath ? editTimeline(next, (t) => ({ ...t, audioOffset: 0 })) : next;
+}

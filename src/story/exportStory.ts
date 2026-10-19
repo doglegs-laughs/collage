@@ -1,6 +1,6 @@
 import { api, type BeatAnalysis } from '../api';
-import { beatDurations, beatLoopSeconds } from './beatTiming';
-import { boundaryTransitionSeconds, computeTimeline, defaultBoundaries, DEFAULT_PAGE_SECONDS } from './timeline';
+import { beatLoopSeconds } from './beatTiming';
+import { boundaryTransitionSeconds, computeTimeline, defaultBoundaries, DEFAULT_PAGE_SECONDS, TIMELINE_FPS, timelineOptions } from './timeline';
 import { toJpeg } from '../core/canvas';
 import { getBitmapForSize } from '../core/images';
 import { evenPageSize, visibleIndices, visiblePages, type Story } from './model';
@@ -132,12 +132,10 @@ async function renderFrames(story: Story, width: number, signal: AbortSignal | u
 export function videoPlan(story: Story, o: Pick<VideoOptions, 'pageSeconds' | 'fitToMusicSeconds' | 'beatSync'>): VideoPlan {
   const v = story.video;
   const beatSync = o.beatSync;
-  // With a timeline (manual lengths, transition overrides, audio start) the timeline engine decides everything about timing.
-  const tl = v.timeline ? computeTimeline(story, { analysis: beatSync?.analysis, beatsPerPage: beatSync?.beatsPerPage, pageSeconds: o.pageSeconds }) : null;
-  const durations = tl
-    ? tl.clips.map((c) => c.duration)
-    : beatSync ? beatDurations(visibleIndices(story).length, beatSync.analysis, beatSync.beatsPerPage) : videoDurations(story, o.pageSeconds, o.fitToMusicSeconds);
-  const { transitions, kenBurnsPages } = tl ? transitionPlan(story, tl.boundaries.map((b) => b.transition)) : videoTransitions(story, !!beatSync);
+  // The timeline engine decides all timing (page durations, manual lengths, beats, fit to music); the Timeline panel asks it with the same options.
+  const tl = computeTimeline(story, timelineOptions(story, { pageSeconds: o.pageSeconds, beatSync, fitToMusicSeconds: o.fitToMusicSeconds }));
+  const durations = tl.clips.map((c) => c.duration);
+  const { transitions, kenBurnsPages } = transitionPlan(story, tl.boundaries.map((b) => b.transition));
   const perBoundary = boundaryTransitionSeconds(durations, v.transitionSeconds);
   const audioStart = v.audioPath && v.timeline ? v.timeline.audioOffset : 0;
   return {
@@ -148,7 +146,7 @@ export function videoPlan(story: Story, o: Pick<VideoOptions, 'pageSeconds' | 'f
     transitionDurations: perBoundary,
     kenBurns: v.kenBurns,
     kenBurnsPages,
-    fps: 30,
+    fps: TIMELINE_FPS,
     ...(v.audioPath ? { audioPath: v.audioPath } : {}),
     ...(audioStart > 0 ? { audioStartSeconds: audioStart } : {}),
     ...(beatSync ? { beatSync: true, audioLoopSeconds: beatLoopSeconds(beatSync.analysis, beatSync.beatsPerPage) } : {}),
