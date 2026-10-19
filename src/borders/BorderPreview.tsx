@@ -34,7 +34,10 @@ export function BorderPreview({ photo, index, count, settings, fill, onStep }: P
         canvas.height = layout.canvasH;
         drawBorder(canvas.getContext('2d')!, bitmap, layout, { finish, fill, caption });
       })
-      .catch((e: unknown) => live && setError(messageOf(e)));
+      .catch((e: unknown) => {
+        // A photo released mid-decode is not an error the person can act on.
+        if (live && !(e instanceof DOMException && e.name === 'AbortError')) setError(messageOf(e));
+      });
     return () => {
       live = false;
     };
