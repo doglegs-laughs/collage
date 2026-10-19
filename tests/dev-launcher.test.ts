@@ -51,3 +51,22 @@ it('handles an executable spawn failure without leaving Vite running', async () 
   await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(1));
   expect(close).toHaveBeenCalledOnce();
 });
+
+it('exits 0 when Electron stops because of our own SIGINT', async () => {
+  await launch();
+  const handler = vi.mocked(process.on).mock.calls.find(([name]) => name === 'SIGINT')![1] as () => void;
+  const kill = vi.fn();
+  Object.assign(child, { kill });
+  handler();
+  expect(kill).toHaveBeenCalled();
+  child.emit('exit', null, 'SIGINT');
+  await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(0));
+});
+
+it('propagates a non-zero exit code and still exits when closing Vite fails', async () => {
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  close.mockRejectedValue(new Error('close failed'));
+  await launch();
+  child.emit('exit', 3, null);
+  await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(3));
+});

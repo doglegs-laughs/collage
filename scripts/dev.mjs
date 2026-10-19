@@ -13,16 +13,22 @@ const url = server.resolvedUrls?.local[0] ?? 'http://localhost:5173/';
 const args = ['.', ...(process.env.COLLAGE_NO_SANDBOX === '1' ? ['--no-sandbox'] : [])];
 const child = spawn(electronBin, args, { stdio: 'inherit', env: { ...process.env, VITE_DEV_SERVER_URL: url } });
 let stopping = false;
+let signalled = false;
 const stop = async (code) => {
   if (stopping) return;
   stopping = true;
-  await server.close();
-  process.exit(code ?? 1);
+  try {
+    await server.close();
+  } catch (error) {
+    console.error('Could not close the Vite server:', error);
+  } finally {
+    process.exit(code);
+  }
 };
-child.on('exit', stop);
+// Electron stopped because we asked it to (Ctrl-C / SIGTERM) is a normal exit; any other signal is a crash.
+child.on('exit', (code, signal) => void stop(signalled ? 0 : (code ?? 1)));
 child.on('error', (error) => {
   console.error('Could not start Electron:', error);
   void stop(1);
 });
-process.on('SIGINT', () => { child.kill(); });
-process.on('SIGTERM', () => { child.kill(); });
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { signalled = true; child.kill(); });
