@@ -77,5 +77,7 @@ export function videoCacheSpec(story: Story, width: number, plan: VideoPlan) {
     const p = findPhoto(story, id);
     return { id, path: p?.path, width: p?.width, height: p?.height };
   });
-  return { width, aspect: story.aspect, pages, photos, fonts: [...fonts].sort(), video: plan, audioPath: plan.audioPath ?? null };
+  const timeline = story.video.timeline;
+  // `video` already holds the timeline's effect (durations, transitions, audio start); the timeline itself is kept in the key too.
+  return { width, aspect: story.aspect, pages, photos, fonts: [...fonts].sort(), video: plan, audioPath: plan.audioPath ?? null, ...(timeline ? { timeline, audioStart: plan.audioStartSeconds ?? 0 } : {}) };
 }

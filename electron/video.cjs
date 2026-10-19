@@ -36,6 +36,8 @@ function validate(job) {
   if (kenBurnsPages !== undefined && (!Array.isArray(kenBurnsPages) || kenBurnsPages.length !== frames.length)) {
     throw new Error('kenBurnsPages must have the same length as frames');
   }
+  const { audioStartSeconds } = job;
+  if (audioStartSeconds !== undefined && (typeof audioStartSeconds !== 'number' || !Number.isFinite(audioStartSeconds) || audioStartSeconds < 0)) throw new Error('audioStartSeconds must be 0 or more');
   if (typeof fps !== 'number' || !Number.isFinite(fps) || fps < 24 || fps > 60) throw new Error('fps must be between 24 and 60');
   const kinds = boundaryKinds(job);
   if (kinds.some((k) => k !== 'none')) {
@@ -188,14 +190,16 @@ function buildArgs(job, size, paths, encoder = SOFTWARE_ENCODER) {
   if (job.audioPath) {
     // A loop shorter than the file (it ends in silence) is cut and repeated in the filter graph.
     const loop = job.audioLoopSeconds;
-    const trimLoop = typeof loop === 'number' && loop > 0 && loop < total;
+    // The music starts `start` seconds into the (looped) file, so the loop is needed whenever start + total passes its end.
+    const start = job.audioStartSeconds > 0 ? job.audioStartSeconds : 0;
+    const trimLoop = typeof loop === 'number' && loop > 0 && loop < total + start;
     if (!trimLoop) args.push('-stream_loop', '-1');
     args.push('-i', job.audioPath);
     const out = Math.min(1.5, total);
     const source = trimLoop
       ? `aresample=48000,atrim=0:${num(loop)},asetpts=PTS-STARTPTS,aloop=loop=-1:size=${Math.round(loop * 48000)}:start=0,`
       : '';
-    filters.push(`[${n}:a]${source}atrim=0:${num(total)},asetpts=PTS-STARTPTS,afade=t=out:st=${num(Math.max(0, total - out))}:d=${num(out)}[aout]`);
+    filters.push(`[${n}:a]${source}atrim=${num(start)}:${num(start + total)},asetpts=PTS-STARTPTS,afade=t=out:st=${num(Math.max(0, total - out))}:d=${num(out)}[aout]`);
   }
 
   args.push('-filter_complex', filters.join(';'));

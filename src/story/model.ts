@@ -70,7 +70,16 @@ export type Page = {
   /** Hidden pages stay in the story (and the editor) but are left out of exports. Applies to a whole spread group. */
   hidden?: boolean;
 };
-export type VideoSettings = { transition: 'none' | 'crossfade'; transitionSeconds: number; kenBurns: boolean; audioPath: string | null; fitToMusic: boolean; syncToBeats: boolean; beatsPerPage: 1 | 2 | 4 | 8 };
+export type BoundaryTransition = 'none' | 'crossfade' | 'slide';
+export const BOUNDARY_TRANSITIONS: readonly BoundaryTransition[] = ['none', 'crossfade', 'slide'];
+/**
+ * Optional manual timing, edited in the Timeline panel. Absent = timing comes from page durations or beat sync alone.
+ * `locked`: manual clip lengths in seconds by page id. `transitions`: override for the boundary AFTER that page.
+ */
+export type Timeline = { audioOffset: number; locked: Record<string, number>; transitions: Record<string, BoundaryTransition> };
+export const MIN_CLIP_SECONDS = 0.2;
+export const MAX_CLIP_SECONDS = 60;
+export type VideoSettings = { transition: 'none' | 'crossfade'; transitionSeconds: number; kenBurns: boolean; audioPath: string | null; fitToMusic: boolean; syncToBeats: boolean; beatsPerPage: 1 | 2 | 4 | 8; timeline?: Timeline };
 export type Story = {
   version: 1;
   title: string;
@@ -455,6 +464,8 @@ export function deserializeStory(json: string): Story {
     });
   }
   const v = isObj(raw.video) ? raw.video : {};
+  const timeline = readTimeline(v.timeline, new Set(pages.map((p) => p.id)));
+  delete (v as Partial<VideoSettings>).timeline; // re-added below only when valid
   const style = STYLE_IDS.includes(raw.style as StyleId) ? (raw.style as StyleId) : 'clean';
   return {
     version: 1,
@@ -469,6 +480,26 @@ export function deserializeStory(json: string): Story {
       ...DEFAULT_VIDEO, ...(v as Partial<VideoSettings>),
       syncToBeats: v.syncToBeats === true,
       beatsPerPage: [1, 2, 4, 8].includes(v.beatsPerPage as number) ? v.beatsPerPage as 1 | 2 | 4 | 8 : 4,
+      ...(timeline ? { timeline } : {}),
     },
   };
+}
+
+/** Validate a saved timeline: offset >= 0, durations clamped to 0.2-60 s, entries for pages that no longer exist dropped. */
+function readTimeline(raw: unknown, pageIds: ReadonlySet<string>): Timeline | undefined {
+  if (!isObj(raw)) return undefined;
+  const audioOffset = typeof raw.audioOffset === 'number' && Number.isFinite(raw.audioOffset) ? Math.max(0, raw.audioOffset) : 0;
+  const locked: Record<string, number> = {};
+  if (isObj(raw.locked)) {
+    for (const [id, d] of Object.entries(raw.locked)) {
+      if (pageIds.has(id) && typeof d === 'number' && Number.isFinite(d)) locked[id] = Math.min(MAX_CLIP_SECONDS, Math.max(MIN_CLIP_SECONDS, d));
+    }
+  }
+  const transitions: Record<string, BoundaryTransition> = {};
+  if (isObj(raw.transitions)) {
+    for (const [id, t] of Object.entries(raw.transitions)) {
+      if (pageIds.has(id) && BOUNDARY_TRANSITIONS.includes(t as BoundaryTransition)) transitions[id] = t as BoundaryTransition;
+    }
+  }
+  return { audioOffset, locked, transitions };
 }

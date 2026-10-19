@@ -32,6 +32,24 @@ function fft(real, imag) {
   }
 }
 
+/**
+ * Loudness envelope for drawing the waveform: the largest |sample| in each of `buckets` equal slices, scaled so the loudest is 1.
+ * About 50 buckets per second (200 to 12000); silence gives all zeros. Self-contained: it also runs inside the analysis worker.
+ */
+function computePeaks(samples, buckets) {
+  const n = buckets || Math.min(12000, Math.max(200, Math.round(samples.length / 11025 * 50)));
+  const peaks = new Array(n).fill(0);
+  let top = 0;
+  for (let b = 0; b < n; b++) {
+    const from = Math.floor(b * samples.length / n), to = Math.max(from + 1, Math.floor((b + 1) * samples.length / n));
+    let m = 0;
+    for (let i = from; i < to && i < samples.length; i++) { const v = Math.abs(samples[i]); if (v > m) m = v; }
+    peaks[b] = m;
+    if (m > top) top = m;
+  }
+  return top > 0 ? peaks.map((v) => Math.round(v / top * 1000) / 1000) : peaks;
+}
+
 /** Detect percussive onsets, estimate tempo, then follow actual beats as tempo drifts. */
 function detectBeats(samples, sampleRate = SAMPLE_RATE) {
   const duration = samples.length / sampleRate;
@@ -136,7 +154,7 @@ function detectBeats(samples, sampleRate = SAMPLE_RATE) {
   };
   const beats = [...follow(-1).reverse(), anchor, ...follow(1)];
   if (beats.length < 4) throw new Error('Not enough clear beats found. Try another track or turn off beat sync.');
-  return { beats, duration, bpm: Math.round(60 / period) };
+  return { beats, duration, bpm: Math.round(60 / period), peaks: computePeaks(samples) };
 }
 
 /**
@@ -148,6 +166,7 @@ function workerSource() {
     "const { parentPort, workerData } = require('node:worker_threads');",
     `const SAMPLE_RATE = ${SAMPLE_RATE}, FFT_SIZE = ${FFT_SIZE}, HOP = ${HOP};`,
     fft.toString(),
+    computePeaks.toString(),
     detectBeats.toString(),
     'parentPort.postMessage(detectBeats(new Float32Array(workerData.samples)));',
   ].join('\n');
@@ -215,4 +234,4 @@ async function analyzeAudio(file) {
   return result;
 }
 
-module.exports = { detectBeats, analyzeAudio, workerSource };
+module.exports = { detectBeats, computePeaks, analyzeAudio, workerSource };

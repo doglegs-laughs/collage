@@ -58,6 +58,20 @@ describe('video', () => {
     expect(args).toContain('-stream_loop');
   });
 
+  it('starts the music audioStartSeconds into the track, looping when start + length passes the loop', () => {
+    const paths = { frames: ['a', 'b', 'c'], output: 'o.mp4' };
+    const fc = (job: object) => { const args: string[] = video.buildArgs({ ...base(), audioPath: audio, ...job }, { width: 320, height: 400 }, paths); return args[args.indexOf('-filter_complex') + 1]; };
+    expect(fc({})).toContain('atrim=0:');
+    expect(fc({ audioStartSeconds: 2.5 })).toMatch(/atrim=2\.5:\d/);
+    // A 10 s loop is longer than the 3.5 s video, but starting 8 s in needs the repeat.
+    expect(fc({ audioLoopSeconds: 10, beatSync: true })).not.toContain('aloop');
+    expect(fc({ audioLoopSeconds: 10, beatSync: true, audioStartSeconds: 8 })).toContain('aloop');
+  });
+
+  it('rejects a negative audio start', async () => {
+    await expect(video.makeVideo({ ...base(), output: path.join(dir, 'neg.mp4'), audioStartSeconds: -1 }, () => {})).rejects.toThrow(/audioStartSeconds/);
+  });
+
   it('picks encoder args: x264 veryfast by default, bitrate-scaled VideoToolbox on request', () => {
     const paths = { frames: ['a', 'b', 'c'], output: 'o.mp4' };
     const soft: string[] = video.buildArgs(base(), { width: 320, height: 400 }, paths);
