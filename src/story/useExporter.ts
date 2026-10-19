@@ -46,8 +46,8 @@ export function useExporter(getStory: () => Story) {
         onProgress: (d, t) => setJob({ kind: 'images', label: `Exporting ${Math.min(d + 1, t)} of ${t}`, fraction: d / t, startedAt }),
       });
       const message = `Saved ${r.files.length} image${r.files.length === 1 ? '' : 's'} to ${folder.split(/[\\/]/).pop()}`;
+      // The status bar shows the message with a Reveal link; a toast on top of it would cover the link.
       setDone({ message, reveal: r.files[0] ?? folder });
-      toast(message, 'success');
     } catch (e) {
       fail(e);
     } finally {
@@ -76,8 +76,9 @@ export function useExporter(getStory: () => Story) {
         if (encoding.current) setJob({ kind: 'video', label: `Encoding ${Math.round(f * 100)}%`, fraction: f, startedAt });
       });
       const total = visibleIndices(story).length;
-      const path = await exportVideo(story, {
+      const { path } = await exportVideo(story, {
         width: req.width, pageSeconds: req.pageSeconds, fitToMusicSeconds: music, beatSync: req.beatSync, signal: ctl.signal,
+        onCached: () => setJob({ kind: 'video', label: 'Using the video you already made', fraction: null, startedAt }),
         onProgress: (d, t) => {
           if (d >= t) { encoding.current = true; setJob({ kind: 'video', label: 'Encoding 0%', fraction: 0, startedAt }); }
           else setJob({ kind: 'video', label: `Rendering pages ${d + 1} / ${total}`, fraction: d / t, startedAt });
@@ -86,7 +87,6 @@ export function useExporter(getStory: () => Story) {
       if (!path) return;
       const message = `Video saved: ${path.split(/[\\/]/).pop()}`;
       setDone({ message, reveal: path });
-      toast(message, 'success');
     } catch (e) {
       fail(e);
     } finally {
