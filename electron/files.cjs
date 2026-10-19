@@ -1,4 +1,5 @@
 const fs = require('node:fs/promises');
+const { constants } = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
@@ -22,12 +23,19 @@ function toBuffer(data) {
   return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
 }
 
+const LINK_UNSUPPORTED = ['ENOTSUP', 'EOPNOTSUPP', 'EXDEV', 'ENOSYS'];
+// EPERM means "no hard links" on Windows/FAT-style filesystems, but on POSIX it is a real permission error.
+function linkUnsupported(error) {
+  return LINK_UNSUPPORTED.includes(error.code) || (error.code === 'EPERM' && process.platform === 'win32');
+}
+
 // Writes next to the target then renames, so a crash never leaves a half-written file.
-// Without overwrite, an existing target is never replaced (hard link fails with EEXIST).
+// Without overwrite, an existing target is never replaced. Filesystems without
+// hard links use an exclusive copy instead (which cannot provide atomic visibility).
 async function atomicWrite(target, data, { overwrite = true } = {}) {
   const tmp = path.join(path.dirname(target), `.${path.basename(target)}.${randomUUID().slice(0, 8)}.tmp`);
-  await fs.writeFile(tmp, toBuffer(data));
   try {
+    await fs.writeFile(tmp, toBuffer(data));
     if (overwrite) {
       await fs.rename(tmp, target);
       return;
@@ -36,9 +44,15 @@ async function atomicWrite(target, data, { overwrite = true } = {}) {
       await fs.link(tmp, target);
     } catch (error) {
       if (error.code === 'EEXIST') throw new Error(`${path.basename(target)} already exists`);
-      if (await exists(target)) throw new Error(`${path.basename(target)} already exists`);
-      await fs.rename(tmp, target);
-      return;
+      if (!linkUnsupported(error)) throw error;
+      try {
+        await fs.copyFile(tmp, target, constants.COPYFILE_EXCL);
+      } catch (copyError) {
+        if (copyError.code === 'EEXIST') throw new Error(`${path.basename(target)} already exists`);
+        // The exclusive copy created the target, so a failure part-way leaves a truncated file behind.
+        await fs.rm(target, { force: true });
+        throw copyError;
+      }
     }
     await fs.unlink(tmp);
   } catch (error) {

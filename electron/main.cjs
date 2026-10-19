@@ -24,7 +24,7 @@ let discardConfirmed = false; // the user already chose Discard for this close/q
 let quitting = false;
 const crashes = [];
 
-let autosavePaths = {}; // photo id -> stored path, for photos written to "Autosave Photos" this session
+const autosave = store.createAutosaveStore(app.getPath('userData'));
 
 /** Ask the renderer to write its autosave now. Resolves true when that worked. */
 function requestFlush() {
@@ -238,15 +238,15 @@ function registerIpc() {
 
   ipcMain.handle('autosave:write', async (_e, json, sidecar, meta) => {
     try {
-      autosavePaths = await store.writeAutosave(app.getPath('userData'), json, sidecar, autosavePaths, meta);
+      await autosave.write(json, sidecar, meta);
       return true;
     } catch (error) {
       console.error('Autosave failed', error);
       return false;
     }
   });
-  ipcMain.handle('autosave:read', () => store.readAutosave(app.getPath('userData')));
-  ipcMain.handle('autosave:clear', async () => { autosavePaths = {}; await store.clearAutosave(app.getPath('userData')); });
+  ipcMain.handle('autosave:read', () => autosave.read());
+  ipcMain.handle('autosave:clear', () => autosave.clear());
 
   // Returns the output path, or '' when the user cancels the save dialog.
   ipcMain.handle('video:make', async (event, job) => {

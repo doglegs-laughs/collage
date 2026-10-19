@@ -158,6 +158,10 @@ export function getPreviewBitmap(photo: Photo): Promise<ImageBitmap> {
   if (!job) {
     job = (async () => {
       const bitmap = await decodeAtEdge(photo, PREVIEW_EDGE);
+      if (pending.get(photo.id) !== job) {
+        bitmap.close();
+        throw new DOMException('Photo was released while decoding.', 'AbortError');
+      }
       previews.set(photo.id, bitmap);
       while (previews.size > CACHE_LIMIT) {
         const [oldest] = previews.keys();
@@ -165,7 +169,9 @@ export function getPreviewBitmap(photo: Photo): Promise<ImageBitmap> {
         previews.delete(oldest);
       }
       return bitmap;
-    })().finally(() => pending.delete(photo.id));
+    })().finally(() => {
+      if (pending.get(photo.id) === job) pending.delete(photo.id);
+    });
     pending.set(photo.id, job);
   }
   return job;
@@ -202,7 +208,7 @@ export function getThumbnailUrl(photo: Photo): Promise<string> {
       if (!blob) throw new Error('Thumbnail failed');
       return URL.createObjectURL(blob);
     })();
-    job.catch(() => thumbs.delete(photo.id));
+    job.catch(() => { if (thumbs.get(photo.id) === job) thumbs.delete(photo.id); });
     thumbs.set(photo.id, job);
   }
   return job;
@@ -215,7 +221,7 @@ export function getObjectUrl(photo: Photo): Promise<string> {
   let job = objectUrls.get(photo.id);
   if (!job) {
     job = sourceBlob(photo).then((b) => URL.createObjectURL(b));
-    job.catch(() => objectUrls.delete(photo.id));
+    job.catch(() => { if (objectUrls.get(photo.id) === job) objectUrls.delete(photo.id); });
     objectUrls.set(photo.id, job);
   }
   return job;
@@ -223,6 +229,7 @@ export function getObjectUrl(photo: Photo): Promise<string> {
 
 /** Free cached bitmaps and URLs for a photo that has left the library. */
 export function releasePhoto(id: string) {
+  pending.delete(id);
   previews.get(id)?.close();
   previews.delete(id);
   for (const cache of [thumbs, objectUrls]) {
