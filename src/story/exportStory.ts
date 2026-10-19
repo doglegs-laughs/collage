@@ -175,10 +175,13 @@ export async function exportVideo(story: Story, o: VideoOptions): Promise<{ path
   return { path: await api.makeVideo({ ...plan, output: '', suggestedName, frames, ...(lookup.key ? { cacheKey: lookup.key } : {}) }), cached: false };
 }
 
+/** file:// URL of a local path, for an <audio> element. */
+export const fileUrl = (path: string): string => encodeURI(`file://${path.startsWith('/') ? '' : '/'}${path.replace(/\\/g, '/')}`).replace(/#/g, '%23').replace(/\?/g, '%3F');
+
 /** Duration of an audio file in seconds, or null when it cannot be read. */
 export function audioDuration(path: string): Promise<number | null> {
   return new Promise((resolve) => {
-    const url = encodeURI(`file://${path.startsWith('/') ? '' : '/'}${path.replace(/\\/g, '/')}`).replace(/#/g, '%23').replace(/\?/g, '%3F');
+    const url = fileUrl(path);
     const audio = new Audio();
     const done = (v: number | null) => {
       window.clearTimeout(timer);

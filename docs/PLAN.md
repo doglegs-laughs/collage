@@ -75,6 +75,8 @@ interface VideoJob {
 
 Per-boundary transitions: `VideoJob.transitions?: ('none' | 'crossfade' | 'slide')[]` (length = pages − 1) overrides `transition` per boundary. `'slide'` = `xfade=transition=slideleft`, which moves both slides together like a horizontal pan, so a panorama or seamless split reads as one continuous camera move left to right. The story exporter sets `'slide'` on every boundary that an element crosses (`story/model.ts` `crossesBoundary(story, i)`), and Ken Burns is disabled on both pages of such a boundary so the seam lines up during the slide.
 
+Timeline (optional, `story.video.timeline`): `{ audioOffset: number /* s into the song where the video starts */; locked: Record<pageId, seconds>; transitions: Record<pageId, 'none'|'crossfade'|'slide'> /* boundary after that page */ }`. `story/timeline.ts` `computeTimeline` lays out the visible pages (locked lengths, else beat sync honouring `audioOffset`, else page durations) and is what `videoPlan` uses whenever a timeline exists; `VideoJob.audioStartSeconds` starts the music that far into the (looped) track. The beat analysis also returns `peaks` (waveform buckets, 0..1). UI in `src/story/timeline/`.
+
 Video build: write frames to a temp dir; ffmpeg with one `-loop 1 -t d -i frame_i.jpg` input per page, optional `zoompan`/`scale` for Ken Burns, chained `xfade` for crossfade, `format=yuv420p`, `libx264 -crf 18 -preset medium -movflags +faststart`, AAC 192k audio with `afade`, `-shortest` relative to video. Parse `-progress pipe:1` `out_time_ms` for progress. Cancel kills the process and deletes partial output. Temp dir always removed.
 
 ## Core photo model

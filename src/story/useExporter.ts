@@ -68,7 +68,7 @@ export function useExporter(getStory: () => Story) {
       setJob({ kind: 'video', label: 'Preparing', fraction: null, startedAt });
       let music: number | null = null;
       if (req.beatSync && req.beatSync.audioPath !== story.video.audioPath) throw new Error('The music changed. Open video export and analyze it again.');
-      if (!req.beatSync && req.fitToMusic && story.video.audioPath) {
+      if (!req.beatSync && req.fitToMusic && story.video.audioPath && !story.video.timeline) {
         music = await audioDuration(story.video.audioPath);
         if (music === null) toast('Could not read the music length, so pages keep their own durations.', 'info');
       }

@@ -19,6 +19,7 @@ import { StoryEmpty, type MakeOpts } from './StoryEmpty';
 import { StoryInspector } from './StoryInspector';
 import { StoryStage, type DropHit } from './StoryStage';
 import { StoryTopbar } from './StoryTopbar';
+import { TimelinePanel } from './timeline/TimelinePanel';
 import { addTitlePage, addTitleToPage, newSeed, setRoleFont } from './storyOps';
 import { useEditor } from './useEditor';
 import { useExporter } from './useExporter';
@@ -62,6 +63,7 @@ export function StoryView() {
     if (!hasPagesNow) api.getRecentStories().then(setRecents).catch(() => {});
   }, [hasPagesNow]);
   const [panel, setPanel] = useState<null | 'images' | 'video'>(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
   const [making, setMaking] = useState(false);
   const hasPages = story.pages.length > 0;
   const { page, pageIndex, selection } = ed;
@@ -209,6 +211,7 @@ export function StoryView() {
               <LayoutControl story={story} pageIndex={pageIndex} extraPhotos={extraPhotos} onApply={(o) => ed.pageLayout(o, extraPhotos)} onCycle={ed.cycleLayout} />
               <Button onClick={history.undo} disabled={!history.canUndo} title="Undo (⌘Z)" data-testid="story-undo">Undo</Button>
               <Button onClick={history.redo} disabled={!history.canRedo} title="Redo (⇧⌘Z)" data-testid="story-redo">Redo</Button>
+              <Button className={timelineOpen ? 'active' : ''} aria-pressed={timelineOpen} onClick={() => setTimelineOpen((o) => !o)} title="Adjust how long each page lasts and where music beats fall" data-testid="story-timeline">Timeline</Button>
               <span className="story-pagelabel" data-testid="page-label">Page {pageIndex + 1} of {story.pages.length}</span>
             </div>
             {page.hidden && (
@@ -225,7 +228,9 @@ export function StoryView() {
               setCropId={ed.setCropId} setEditingId={ed.setEditingId} onDropPhoto={dropPhoto} onScale={onScale}
               onContextMenu={(id, x, y) => setMenu({ id, x, y })} onDropOut={dropOut}
             />
-            <PageStrip elementSelected={selection.length > 0} story={story} pageIndex={pageIndex} thumbs={thumbs} onSelect={ed.goTo} onMove={ed.pageMove} onToggleHidden={ed.toggleHidden} onMenu={(i, x, y) => setPageMenu({ i, x, y })} onAdd={ed.pageAdd} onDuplicate={ed.pageDuplicate} onDelete={ed.pageDelete} />
+            {timelineOpen ? (
+              <TimelinePanel story={story} mutate={st.mutate} pageIndex={pageIndex} thumbs={thumbs} onSelectPage={ed.goTo} onClose={() => setTimelineOpen(false)} />
+            ) : <PageStrip elementSelected={selection.length > 0} story={story} pageIndex={pageIndex} thumbs={thumbs} onSelect={ed.goTo} onMove={ed.pageMove} onToggleHidden={ed.toggleHidden} onMenu={(i, x, y) => setPageMenu({ i, x, y })} onAdd={ed.pageAdd} onDuplicate={ed.pageDuplicate} onDelete={ed.pageDelete} />}
           </div>
           <aside className="sidebar story-insp" data-testid="story-inspector">
             <StoryInspector
@@ -273,6 +278,7 @@ export function StoryView() {
       {panel === 'video' && (
         <VideoDialog
           story={story} onClose={() => setPanel(null)} onExport={(r) => void exporter.video(r)}
+          onEditTiming={() => { setPanel(null); setTimelineOpen(true); }}
           onVideo={(patch) => st.mutate((s) => ({ ...s, video: { ...s.video, ...patch } }), 'video-settings')}
         />
       )}
