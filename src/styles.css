@@ -128,7 +128,7 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 .borders-nav { width: 30px; height: 30px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--panel); color: var(--muted); font-size: 16px; line-height: 1; }
 .borders-nav:hover:not(:disabled) { color: var(--accent-text); border-color: var(--accent); }
 .borders-nav:disabled { opacity: .35; cursor: default; }
-.borders-canvas-wrap { position: relative; flex: 1 1 0; min-height: 0; display: grid; place-items: center; }
+.borders-canvas-wrap { position: relative; flex: 1 1 0; min-height: 0; display: grid; place-items: center; grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
 .borders-canvas { max-width: 100%; max-height: 100%; width: auto; height: auto; background: #fff; box-shadow: var(--shadow-lg); border-radius: 4px; }
 .borders-error { position: absolute; margin: 0; padding: 8px 14px; border-radius: 10px; background: var(--panel); color: var(--danger); font-weight: 600; box-shadow: var(--shadow); }
 .borders-meta { margin: 0; text-align: center; color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums; }
