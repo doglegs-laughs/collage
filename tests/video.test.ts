@@ -5,6 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { findFfprobe } from './helpers/wav';
 
 const require = createRequire(import.meta.url);
 const video = require('../electron/video.cjs');
@@ -12,7 +13,7 @@ const { ffmpegPath } = require('../electron/ffmpeg-path.cjs');
 
 const FFMPEG = ffmpegPath();
 const hasFfmpeg = spawnSync(FFMPEG, ['-version']).status === 0;
-const FFPROBE = fs.existsSync('/usr/bin/ffprobe') ? '/usr/bin/ffprobe' : 'ffprobe';
+const FFPROBE = findFfprobe() ?? 'ffprobe';
 
 let dir: string;
 let frames: Uint8Array[];
@@ -56,6 +57,43 @@ describe('video', () => {
     expect(fc).toContain('zoompan');
     expect(args).toContain('-stream_loop');
   });
+
+  it('centres fades on the beat when beatSync is set, keeping the total length', () => {
+    const args = (job: object): string => {
+      const a: string[] = video.buildArgs(job, { width: 320, height: 400 }, { frames: ['a', 'b', 'c'], output: 'o.mp4' });
+      return a[a.indexOf('-filter_complex') + 1];
+    };
+    const fc = args({ ...base(), kenBurns: false, beatSync: true });
+    expect(fc).toContain('offset=1.25');
+    expect(fc).toContain('offset=2.75');
+    const per = args({ ...base(), kenBurns: false, beatSync: true, transitionDurations: [0.2, 1] });
+    expect(per).toContain('duration=0.2:offset=1.4');
+    expect(per).toContain('duration=1:offset=2.5');
+    expect(args({ ...base(), kenBurns: false })).toContain('offset=1.5');
+    const none = args({ ...base(), kenBurns: false, beatSync: true, transitions: ['none', 'slide'] });
+    expect(none).toContain('concat=n=2');
+    expect(none).toContain('xfade=transition=slideleft:duration=0.5:offset=2.75');
+  });
+
+  it('validates per-boundary fade lengths against the neighbouring pages', async () => {
+    const bad = (extra: object) => video.makeVideo({ ...base(), output: path.join(dir, 'bad.mp4'), ...extra }, () => {});
+    await expect(bad({ durations: [4, 0.5, 4], transitionDurations: [0.4, 0.5] })).rejects.toThrow(/shorter than both/);
+    await expect(bad({ transitionDurations: [0.4] })).rejects.toThrow(/length/);
+  });
+
+  it('exports a centred beat-synced video with the exact total length and looped audio', async () => {
+    const out = path.join(dir, 'beat.mp4');
+    await video.makeVideo({ ...base(), durations: [1, 1.5, 1], transitionSeconds: 0.5, transitionDurations: [0.4, 0.5], kenBurns: false, beatSync: true, audioPath: audio, audioLoopSeconds: 1.2, output: out }, () => {});
+    const p = probe(out);
+    expect(Math.abs(p.duration - 3.5)).toBeLessThan(0.15);
+    expect(p.codecs).toContain('aac');
+    const pixel = (time: number) => execFileSync(FFMPEG, ['-v', 'error', '-ss', String(time), '-i', out, '-frames:v', '1', '-vf', 'scale=1:1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1']);
+    expect(pixel(0.7)[0]).toBeGreaterThan(200); // still the first photo before the fade begins at 0.8
+    const mid = pixel(1.0); // the beat itself: half way between red and green
+    expect(mid[0]).toBeGreaterThan(80); expect(mid[0]).toBeLessThan(180);
+    expect(mid[1]).toBeGreaterThan(60); expect(mid[1]).toBeLessThan(180);
+    expect(pixel(1.4)[1]).toBeGreaterThan(100); expect(pixel(1.4)[0]).toBeLessThan(30);
+  }, 60000);
 
   it('makes crossfade + kenBurns + looped audio video', async () => {
     const out = path.join(dir, 'x.mp4');

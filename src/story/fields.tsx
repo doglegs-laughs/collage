@@ -16,10 +16,10 @@ export function ColorInput({ value, onChange, label }: { value: string; onChange
   return <input type="color" className="color-swatch" aria-label={label} value={asHex(value)} onChange={(e) => onChange(e.target.value)} />;
 }
 
-export function Check({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+export function Check({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
   return (
     <label className="check-row">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span>{label}</span>
     </label>
   );

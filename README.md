@@ -117,6 +117,10 @@ npm run screenshots  # regenerate docs/screenshots (node scripts/screenshots.mjs
 
 Design notes and data contracts: [`docs/PLAN.md`](docs/PLAN.md).
 
+## Sync a story to music beats
+
+In **Story → Export → Video**, choose music and enable **Sync photo changes to beats**. The app detects the rhythm locally; choose **1, 2, 4, or 8 beats per page**, then make the video. Beat timing replaces manual page durations for that export, skips hidden pages, and repeats short music tracks as needed. Turn beat sync off to return to manual timing or **Fit to music length**. Music with a clear rhythm works best; analysis supports local audio files under 25 minutes.
+
 **CI and releases.** [`.github/workflows/build.yml`](.github/workflows/build.yml) builds the Mac app and the Windows installer and zip on every pull request and push to `main`. The downloads are attached to each run. When a push to `main` changes `version` in `package.json`, the `release` job publishes GitHub Release `v<version>` with all three files once both builds pass.
 
 Sample photos in the screenshots are from [Unsplash](https://unsplash.com) (Unsplash License).

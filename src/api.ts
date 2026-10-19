@@ -9,6 +9,12 @@ export interface VideoJob {
   /** Per-boundary override (length = frames - 1). 'slide' pans both pages together. */
   transitions?: ('none' | 'crossfade' | 'slide')[];
   transitionSeconds: number;
+  /** Per-boundary fade length (length = frames - 1); overrides `transitionSeconds` where present. */
+  transitionDurations?: number[];
+  /** Photo changes are timed to music beats: fades are centred on the boundary instead of starting at it. */
+  beatSync?: boolean;
+  /** Music repeats every this many seconds (shorter than the file when it ends in silence). */
+  audioLoopSeconds?: number;
   kenBurns: boolean;
   /** Per-page Ken Burns switch (length = frames); overrides `kenBurns` when present. */
   kenBurnsPages?: boolean[];
@@ -19,6 +25,8 @@ export interface VideoJob {
 /** A photo that has no file on disk (pasted, sent from Collage); saved beside the project so it can be found again. */
 export interface SidecarPhoto { id: string; name: string; data: Uint8Array }
 
+export interface BeatAnalysis { beats: number[]; duration: number; bpm: number }
+
 export interface FileFilter { name: string; extensions: string[] }
 
 export interface Api {
@@ -26,6 +34,7 @@ export interface Api {
   pathForFile(file: File): string;
   openImages(): Promise<string[]>;
   openAudio(): Promise<string | null>;
+  analyzeAudio(path: string): Promise<BeatAnalysis>;
   readFile(path: string): Promise<Uint8Array>;
   saveFile(opts: { defaultName: string; filters: FileFilter[]; data: Uint8Array }): Promise<string | null>;
   chooseFolder(): Promise<string | null>;
@@ -104,6 +113,7 @@ const browserApi: Api = {
   pathForFile: () => '',
   openImages: unsupported('Choosing files by path'),
   openAudio: unsupported('Choosing music'),
+  analyzeAudio: unsupported('Detecting music beats'),
   readFile: unsupported('Reading files by path'),
   async saveFile({ defaultName, data }) {
     download(data as BlobPart, defaultName, mimeFor(defaultName));

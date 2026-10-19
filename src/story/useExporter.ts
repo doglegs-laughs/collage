@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '../api';
+import { api, type BeatAnalysis } from '../api';
 import { useToast } from '../ui/Toast';
 import { audioDuration, exportImages, exportVideo, isAbort } from './exportStory';
 import { visibleIndices, type Story } from './model';
 
 export type ExportJob = { kind: 'images' | 'video'; label: string; fraction: number | null };
 export type ExportDone = { message: string; reveal: string };
-export type VideoRequest = { width: number; pageSeconds: number; fitToMusic: boolean };
+export type VideoRequest = { width: number; pageSeconds: number; fitToMusic: boolean; beatSync?: { analysis: BeatAnalysis; beatsPerPage: number; audioPath: string } };
 
 /** Runs image/video exports with progress, cancel and a result message. */
 export function useExporter(getStory: () => Story) {
@@ -65,7 +65,8 @@ export function useExporter(getStory: () => Story) {
     try {
       setJob({ kind: 'video', label: 'Preparing', fraction: null });
       let music: number | null = null;
-      if (req.fitToMusic && story.video.audioPath) {
+      if (req.beatSync && req.beatSync.audioPath !== story.video.audioPath) throw new Error('The music changed. Open video export and analyze it again.');
+      if (!req.beatSync && req.fitToMusic && story.video.audioPath) {
         music = await audioDuration(story.video.audioPath);
         if (music === null) toast('Could not read the music length, so pages keep their own durations.', 'info');
       }
@@ -74,7 +75,7 @@ export function useExporter(getStory: () => Story) {
       });
       const total = visibleIndices(story).length;
       const path = await exportVideo(story, {
-        width: req.width, pageSeconds: req.pageSeconds, fitToMusicSeconds: music, signal: ctl.signal,
+        width: req.width, pageSeconds: req.pageSeconds, fitToMusicSeconds: music, beatSync: req.beatSync, signal: ctl.signal,
         onProgress: (d, t) => {
           if (d >= t) { encoding.current = true; setJob({ kind: 'video', label: 'Encoding video', fraction: 0 }); }
           else setJob({ kind: 'video', label: `Rendering page ${d + 1} of ${total}`, fraction: null });

@@ -1,4 +1,5 @@
-import { api, type VideoJob } from '../api';
+import { api, type BeatAnalysis, type VideoJob } from '../api';
+import { beatDurations, beatLoopSeconds } from './beatTiming';
 import { toJpeg } from '../core/canvas';
 import { getBitmapForSize } from '../core/images';
 import { crossesBoundary, evenPageSize, visibleIndices, visiblePages, type Story } from './model';
@@ -61,6 +62,7 @@ export type VideoOptions = {
   /** Seconds applied to pages whose own duration is still the default (3 s). */
   pageSeconds: number;
   fitToMusicSeconds?: number | null;
+  beatSync?: { analysis: BeatAnalysis; beatsPerPage: number };
   signal?: AbortSignal;
   onProgress?: Progress;
 };
@@ -94,6 +96,11 @@ export function videoTransitions(story: Story): { transitions: ('none' | 'crossf
   return { transitions, kenBurnsPages };
 }
 
+/** Crossfade length for each page boundary: the chosen length, capped by 80% of the shorter adjacent page. */
+export function boundaryTransitionSeconds(durations: number[], seconds: number): number[] {
+  return durations.slice(1).map((d, i) => Math.min(seconds, Math.min(durations[i], d) * 0.8));
+}
+
 export async function exportVideo(story: Story, o: VideoOptions): Promise<string> {
   const { width } = evenPageSize(story.aspect, o.width);
   const frames: Uint8Array[] = [];
@@ -101,10 +108,12 @@ export async function exportVideo(story: Story, o: VideoOptions): Promise<string
     frames.push(await toJpeg(canvas, 0.92));
   });
   check(o.signal);
-  const durations = videoDurations(story, o.pageSeconds, o.fitToMusicSeconds);
+  const durations = o.beatSync
+    ? beatDurations(visibleIndices(story).length, o.beatSync.analysis, o.beatSync.beatsPerPage)
+    : videoDurations(story, o.pageSeconds, o.fitToMusicSeconds);
   const v = story.video;
   const { transitions, kenBurnsPages } = videoTransitions(story);
-  const shortest = Math.min(...durations);
+  const perBoundary = boundaryTransitionSeconds(durations, v.transitionSeconds);
   const job: VideoJob = {
     output: '',
     suggestedName: `${storyBaseName(story)}.mp4`,
@@ -112,11 +121,13 @@ export async function exportVideo(story: Story, o: VideoOptions): Promise<string
     durations,
     transition: v.transition,
     transitions,
-    transitionSeconds: Math.min(v.transitionSeconds, shortest * 0.8),
+    transitionSeconds: Math.min(v.transitionSeconds, ...perBoundary),
+    transitionDurations: perBoundary,
     kenBurns: v.kenBurns,
     kenBurnsPages,
     fps: 30,
     ...(v.audioPath ? { audioPath: v.audioPath } : {}),
+    ...(o.beatSync ? { beatSync: true, audioLoopSeconds: beatLoopSeconds(o.beatSync.analysis, o.beatSync.beatsPerPage) } : {}),
   };
   return api.makeVideo(job);
 }

@@ -81,7 +81,10 @@ const imagesLoaded = () =>
   }, undefined, { timeout: 30_000 });
 
 async function shootFirstPages(style: string) {
-  for (let i = 0; i < 4; i++) {
+  // Shuffle can legitimately produce fewer than four pages in Stylized layouts.
+  const count = Math.min(4, await stripCount());
+  expect(count).toBeGreaterThan(0);
+  for (let i = 0; i < count; i++) {
     await story().getByTestId('strip-page').nth(i).click();
     await expect(story().getByTestId('page-label')).toContainText(`Page ${i + 1} of`);
     await imagesLoaded().catch(() => {});
