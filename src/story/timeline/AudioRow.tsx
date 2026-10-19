@@ -1,14 +1,16 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { BeatAnalysis } from '../../api';
 import { Button } from '../../ui/Controls';
-import { beatClock } from '../beatTiming';
-import { snapToBeat } from './math';
+import { beatClock, hasBeats } from '../beatTiming';
+import { snapToBeat, waveformPeak } from './math';
 import type { MusicAnalysis } from './useMusicAnalysis';
 
 type Props = {
   music: MusicAnalysis;
   analysis?: BeatAnalysis;
   beatsPerPage: number;
+  /** Where the music repeats in the video (the export's loop point), or null for the end of the file. The waveform tiles at this length. */
+  loopSeconds: number | null;
   /** Seconds into the song where the video starts. */
   offset: number;
   pxPerSecond: number;
@@ -27,13 +29,13 @@ type Props = {
 
 const HEIGHT = 50;
 
-function AudioRowBase({ music, analysis, beatsPerPage, offset, pxPerSecond, axisWidth, viewWidth, scrollLeft, total, fileName, onDrag, onCommit }: Props) {
+function AudioRowBase({ music, analysis, beatsPerPage, loopSeconds, offset, pxPerSecond, axisWidth, viewWidth, scrollLeft, total, fileName, onDrag, onCommit }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ x: number; offset: number; latest: number; moved: boolean } | null>(null);
 
   const beats = useMemo(() => {
-    if (!analysis) return [];
+    if (!hasBeats(analysis)) return [];
     try { return beatClock(analysis, beatsPerPage, offset).upTo(axisWidth / pxPerSecond); } catch { return []; }
   }, [analysis, beatsPerPage, offset, axisWidth, pxPerSecond]);
 
@@ -53,14 +55,12 @@ function AudioRowBase({ music, analysis, beatsPerPage, offset, pxPerSecond, axis
     const mid = HEIGHT / 2;
     const peaks = analysis?.peaks;
     if (analysis && peaks?.length) {
-      const per = peaks.length / analysis.duration; // buckets per second
+      const loop = loopSeconds ?? analysis.duration;
       g.fillStyle = wave;
       for (let x = 0; x < viewWidth; x++) {
         const t0 = (scrollLeft + x) / pxPerSecond, t1 = (scrollLeft + x + 1) / pxPerSecond;
-        const m0 = (t0 + offset) % analysis.duration, m1 = m0 + (t1 - t0);
-        const from = Math.floor(m0 * per), to = Math.max(from + 1, Math.ceil(m1 * per));
-        let peak = 0;
-        for (let i = from; i < to; i++) peak = Math.max(peak, peaks[i % peaks.length]);
+        const m0 = (t0 + offset) % loop, m1 = m0 + (t1 - t0);
+        const peak = waveformPeak(peaks, analysis.duration, loop, m0, m1);
         const h = Math.max(1, peak * (HEIGHT - 12));
         g.globalAlpha = t0 > total ? 0.3 : 0.85;
         g.fillRect(x, mid - h / 2, 1, h);
@@ -80,7 +80,7 @@ function AudioRowBase({ music, analysis, beatsPerPage, offset, pxPerSecond, axis
       g.stroke();
     }
     g.globalAlpha = 1;
-  }, [analysis, beats, offset, pxPerSecond, scrollLeft, viewWidth, total]);
+  }, [analysis, beats, offset, loopSeconds, pxPerSecond, scrollLeft, viewWidth, total]);
 
   const down = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!analysis || e.button !== 0 || (e.target as HTMLElement).closest('button')) return;

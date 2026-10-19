@@ -2,15 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
 import { Button, Segmented, Slider } from '../../ui/Controls';
 import { useToast } from '../../ui/Toast';
-import { beatClock } from '../beatTiming';
+import { beatClock, hasBeats } from '../beatTiming';
 import { ContextMenu, type MenuItem } from '../ContextMenu';
 import { Check } from '../fields';
 import type { BoundaryTransition, Story, VideoSettings } from '../model';
-import { computeTimeline, defaultBoundaries, lockClip, resyncFrom, setAudioOffset, setBoundaryTransition, unlockClip, type ComputedTimeline } from '../timeline';
+import { audioDuration } from '../exportStory';
+import { computeTimeline, defaultBoundaries, fitToMusicApplies, lockClip, musicLoopSeconds, patchVideo, resetTimeline, resyncFrom, setAudioOffset, setBoundaryTransition, timelineOptions, unlockClip, type ComputedTimeline } from '../timeline';
 import { NO_MEMORY, setBeatSync, type SyncMemory, type SyncStep } from '../videoDialogState';
 import { AudioRow } from './AudioRow';
 import { ClipsRow, type EdgeDrag } from './ClipsRow';
-import { PauseIcon, PlayIcon } from './icons';
+import { PauseIcon, PlayIcon, TRANSITION_LABEL } from './icons';
 import { formatClock, MAX_PX_PER_SECOND, rulerStep } from './math';
 import { Preview } from './Preview';
 import { useMusicAnalysis } from './useMusicAnalysis';
@@ -28,7 +29,19 @@ type Props = {
 type Drag = ({ kind: 'clip' } & EdgeDrag) | { kind: 'audio'; offset: number };
 const GUTTER = 28;
 const NEXT: Record<BoundaryTransition, BoundaryTransition> = { none: 'crossfade', crossfade: 'slide', slide: 'none' };
-const NAME: Record<BoundaryTransition, string> = { none: 'Cut', crossfade: 'Crossfade', slide: 'Slide' };
+const titled = (kind: BoundaryTransition) => TRANSITION_LABEL[kind].replace(/^./, (c) => c.toUpperCase());
+
+/** Length of the music file, for fit to music; null until read (and when `enabled` is false). Reads it the way the export does. */
+function useAudioLength(path: string | null, enabled: boolean): number | null {
+  const [len, setLen] = useState<{ path: string; seconds: number | null } | null>(null);
+  useEffect(() => {
+    if (!path || !enabled) return;
+    let active = true;
+    void audioDuration(path).then((seconds) => { if (active) setLen({ path, seconds }); });
+    return () => { active = false; };
+  }, [path, enabled]);
+  return enabled && len?.path === path ? len.seconds : null;
+}
 
 /** Always calls the latest `fn`, through an identity that never changes, so memoized rows are not redrawn by playback ticks. */
 function useStable<A extends unknown[], R>(fn: (...a: A) => R): (...a: A) => R {
@@ -53,7 +66,7 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
 
   const music = useMusicAnalysis(v.audioPath, v.syncToBeats);
   const analysis = music.result;
-  const syncOn = v.syncToBeats && !!analysis;
+  const syncOn = v.syncToBeats && hasBeats(analysis);
   const offsetNow = v.timeline?.audioOffset ?? 0;
 
   const shown = useMemo(() => {
@@ -61,10 +74,14 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
     if (drag?.kind === 'audio') return setAudioOffset(story, drag.offset);
     return story;
   }, [story, drag]);
-  const options = useMemo(() => ({ analysis: syncOn ? analysis : undefined, beatsPerPage: v.beatsPerPage }), [syncOn, analysis, v.beatsPerPage]);
+  const musicLength = useAudioLength(v.audioPath, fitToMusicApplies(v, syncOn));
+  // The same options the export builds its video from (seconds per page, beat sync, fit to music), so the totals always agree.
   const tl: ComputedTimeline = useMemo(() => {
-    try { return computeTimeline(shown, options); } catch { return computeTimeline(shown, {}); } // a broken analysis falls back to page durations
-  }, [shown, options]);
+    try {
+      return computeTimeline(shown, timelineOptions(shown, { beatSync: syncOn && analysis ? { analysis, beatsPerPage: v.beatsPerPage } : undefined, fitToMusicSeconds: musicLength }));
+    } catch { return computeTimeline(shown, timelineOptions(shown)); } // a broken analysis falls back to page durations
+  }, [shown, syncOn, analysis, v.beatsPerPage, musicLength]);
+  const loopSeconds = musicLoopSeconds(analysis, v.beatsPerPage, syncOn);
   const shownOffset = shown.video.timeline?.audioOffset ?? 0;
 
   /* ----- time axis ----- */
@@ -87,7 +104,7 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
   const axisWidth = Math.max(view.width, Math.ceil(tl.total * pps) + GUTTER);
 
   /* ----- playback ----- */
-  const pb = usePlayback(tl.total, v.audioPath, shownOffset);
+  const pb = usePlayback(tl.total, v.audioPath, shownOffset, loopSeconds);
   useEffect(() => {
     const el = scroller.current;
     if (!el || !pb.playing) return;
@@ -98,7 +115,7 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
   /* ----- snapping targets: beats in video time ----- */
   const reach = Math.ceil((tl.total + 60) / 60) * 60;
   const beatTimes = useMemo(() => {
-    if (!analysis) return [];
+    if (!hasBeats(analysis)) return [];
     try { return beatClock(analysis, v.beatsPerPage, offsetNow).upTo(reach).map((b) => b.time); } catch { return []; }
   }, [analysis, v.beatsPerPage, offsetNow, reach]);
 
@@ -127,7 +144,8 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
   const openMenu = useStable((pageId: string, x: number, y: number) => setMenu({ pageId, x, y }));
   const dragAudio = useCallback((offset: number) => setDrag({ kind: 'audio', offset }), []);
   const commitAudio = useCallback((offset: number) => { setDrag(null); mutate((s) => setAudioOffset(s, offset)); }, [mutate]);
-  const setVideo = (patch: Partial<VideoSettings>) => mutate((s) => ({ ...s, video: { ...s.video, ...patch } }), 'video-settings');
+  // Changing or clearing the music also forgets the music start (patchVideo), in the same undo step.
+  const setVideo = (patch: Partial<VideoSettings>) => mutate((s) => patchVideo(s, patch), 'video-settings');
   const applySync = (step: SyncStep, extra: Partial<VideoSettings> = {}) => { memory.current = step.memory; setVideo({ ...step.patch, ...extra }); };
   const pickMusic = async () => {
     try {
@@ -149,7 +167,7 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
     const b = tl.boundaries[k];
     if (b) {
       (['none', 'crossfade', 'slide'] as const).forEach((kind, i) => items.push({
-        label: `${NAME[kind]} after this page${b.transition === kind ? ' ✓' : ''}`, separator: i === 0,
+        label: `${titled(kind)} after this page${b.transition === kind ? ' ✓' : ''}`, separator: i === 0,
         onSelect: () => mutate((s) => setBoundaryTransition(s, pageId, kind, defaults()[k])),
       }));
     }
@@ -174,7 +192,7 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
   const ticks = Array.from({ length: Math.max(0, last - first + 1) }, (_, i) => (first + i) * step);
 
   const fileName = v.audioPath?.split(/[\\/]/).pop() ?? '';
-  const status = music.status === 'busy' ? 'Analyzing…' : music.status === 'error' ? (music.error ?? 'Could not analyze') : analysis ? `${analysis.bpm} BPM · ${analysis.beats.length} beats` : '';
+  const status = music.status === 'busy' ? 'Analyzing…' : music.status === 'error' ? (music.error ?? 'Could not analyze') : analysis?.noBeats ? (analysis.reason ?? 'No clear beats found. Try another track.') : analysis ? `${analysis.bpm} BPM · ${analysis.beats.length} beats` : '';
 
   return (
     <section ref={root} className="tl-panel" aria-label="Timeline" data-testid="timeline-panel" tabIndex={0} onKeyDown={keys}>
@@ -190,7 +208,7 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
         <div className="tl-group">
           <Button onClick={() => currentClip && mutate((s) => unlockClip(s, currentClip.pageId))} disabled={!currentClip?.locked} title="Give this page back its automatic length" data-testid="tl-unlock">Unlock</Button>
           <Button onClick={() => currentClip && mutate((s) => resyncFrom(s, currentClip.pageId))} disabled={!canResync} title="Unlock this page and every page after it" data-testid="tl-resync">Re-sync from here</Button>
-          <Button onClick={() => mutate((s) => { const { timeline: _t, ...video } = s.video; void _t; return { ...s, video }; })} disabled={!v.timeline} title="Remove every manual length, transition change and music start" data-testid="tl-reset">Reset timing</Button>
+          <Button onClick={() => mutate(resetTimeline)} disabled={!v.timeline} title="Remove every manual length, transition change and music start" data-testid="tl-reset">Reset timing</Button>
         </div>
         <div className="tl-group tl-zoom">
           {/* The left end of the slider is "fit all": the whole video in view, kept fitted when the window is resized. */}
@@ -199,7 +217,7 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
         <div className="tl-group tl-music">
           <Button variant="soft" onClick={pickMusic} data-testid="tl-music">{v.audioPath ? 'Change music…' : 'Choose music…'}</Button>
           {v.audioPath && <button type="button" className="link" onClick={() => applySync(setBeatSync(v, memory.current, false), { audioPath: null, fitToMusic: false })}>Clear</button>}
-          {v.audioPath && <Check label="Sync to beats" checked={v.syncToBeats} onChange={(on) => applySync(setBeatSync(v, memory.current, on))} />}
+          {v.audioPath && <Check label="Sync to beats" checked={v.syncToBeats} disabled={!!analysis?.noBeats && !v.syncToBeats} onChange={(on) => applySync(setBeatSync(v, memory.current, on))} />}
           {v.audioPath && (
             <Segmented<'1' | '2' | '4' | '8'>
               label="Beats per page" value={String(v.beatsPerPage) as '1' | '2' | '4' | '8'}
@@ -237,7 +255,7 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
               {v.audioPath && (
                 <AudioRow
                   music={music} analysis={analysis} beatsPerPage={v.beatsPerPage} offset={shownOffset} pxPerSecond={pps}
-                  axisWidth={axisWidth} viewWidth={view.width} scrollLeft={view.left} total={tl.total} fileName={fileName}
+                  loopSeconds={loopSeconds} axisWidth={axisWidth} viewWidth={view.width} scrollLeft={view.left} total={tl.total} fileName={fileName}
                   onDrag={dragAudio} onCommit={commitAudio}
                 />
               )}

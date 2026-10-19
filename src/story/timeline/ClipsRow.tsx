@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { MAX_CLIP_SECONDS, MIN_CLIP_SECONDS } from '../model';
-import type { ComputedTimeline } from '../timeline';
+import { clampClip, type ComputedTimeline } from '../timeline';
 import { LockIcon, TRANSITION_LABEL, TransitionIcon } from './icons';
 import { snapToBeat } from './math';
 
@@ -69,7 +69,7 @@ function ClipsRowBase({ tl, pxPerSecond: pps, axisWidth, thumbs, backgrounds, cu
     d.moved = true;
     const t = (e.clientX - left) / pps;
     const snap = snapToBeat(t, beats, pps, !e.altKey);
-    const duration = Math.min(MAX_CLIP_SECONDS, Math.max(MIN_CLIP_SECONDS, snap.time - d.start));
+    const duration = clampClip(snap.time - d.start);
     d.latest = duration;
     onDrag({ pageId: d.pageId, duration, snapTime: snap.snapped && Math.abs(snap.time - d.start - duration) < 1e-9 ? snap.time : null });
   };

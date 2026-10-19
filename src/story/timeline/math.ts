@@ -47,3 +47,29 @@ export function previewAt(tl: ComputedTimeline, t: number, centred: boolean): Pr
   }
   return { from: clipAtTime(tl, t), to: null, progress: 0, kind: 'none' };
 }
+
+/** Where in the music file the sound for video time `t` is: the start offset plus `t`, wrapped at the loop point (null = no known loop, no wrapping). */
+export function musicPosition(offset: number, t: number, loop: number | null): number {
+  const at = offset + t;
+  return loop && loop > 0 ? at % loop : at;
+}
+
+/**
+ * Manual loop for the preview audio (instead of `el.loop`, which would only wrap at the end of the file): where to seek the element
+ * to, or null to leave it alone. At or past the loop point it goes back by one loop; an element that has run to its end restarts at 0.
+ */
+export function loopSeekTarget(currentTime: number, loop: number | null, ended = false): number | null {
+  if (ended) return 0;
+  if (loop && loop > 0 && currentTime >= loop) return currentTime % loop;
+  return null;
+}
+
+/** Loudest bucket of `peaks` (spread over `duration` seconds) under the music-time span [m0, m1), where the music repeats every `loop` seconds. */
+export function waveformPeak(peaks: readonly number[], duration: number, loop: number | null, m0: number, m1: number): number {
+  const per = peaks.length / duration; // buckets per second
+  const size = Math.max(1, Math.min(peaks.length, Math.round((loop && loop > 0 ? Math.min(loop, duration) : duration) * per)));
+  const from = Math.floor(m0 * per), to = Math.max(from + 1, Math.ceil(m1 * per));
+  let peak = 0;
+  for (let i = from; i < to; i++) peak = Math.max(peak, peaks[i % size] ?? 0);
+  return peak;
+}

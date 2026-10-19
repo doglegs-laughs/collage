@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { emptyPage, emptyStory } from '../src/story/model';
 import { computeTimeline, setBoundaryTransition } from '../src/story/timeline';
-import { formatClock, previewAt, rulerStep, snapToBeat } from '../src/story/timeline/math';
+import { formatClock, loopSeekTarget, musicPosition, previewAt, rulerStep, snapToBeat, waveformPeak } from '../src/story/timeline/math';
 
 describe('snapToBeat', () => {
   const beats = [0.2, 0.7, 1.2, 1.7];
@@ -51,5 +51,27 @@ describe('previewAt', () => {
     expect(previewAt(cut, 3.2, false)).toMatchObject({ from: 1, to: null });
     const slide = computeTimeline(setBoundaryTransition(story, story.pages[0].id, 'slide'));
     expect(previewAt(slide, 3.5, false)).toMatchObject({ from: 0, to: 1, kind: 'slide' });
+  });
+});
+
+describe('music looping in the preview', () => {
+  it('musicPosition wraps at the loop point the export uses, not at the end of the file', () => {
+    expect(musicPosition(1, 2, 5)).toBe(3);
+    expect(musicPosition(1, 4.5, 5)).toBeCloseTo(0.5); // loop of 5 s inside a longer file
+    expect(musicPosition(2, 20, null)).toBe(22);
+  });
+
+  it('loopSeekTarget sends the element back at the loop point, or to 0 once the file ended', () => {
+    expect(loopSeekTarget(4.9, 5)).toBeNull();
+    expect(loopSeekTarget(5.02, 5)).toBeCloseTo(0.02);
+    expect(loopSeekTarget(7, null)).toBeNull();
+    expect(loopSeekTarget(8, 8, true)).toBe(0);
+  });
+
+  it('the waveform tiles at the loop length: the bucket after the loop point is the first bucket again', () => {
+    const peaks = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]; // 1 bucket per second, 8 s file
+    expect(waveformPeak(peaks, 8, null, 5.2, 5.8)).toBe(0.6);
+    expect(waveformPeak(peaks, 8, 4, 4.2, 4.8)).toBe(0.1); // loop of 4 s: second 4 shows second 0
+    expect(waveformPeak(peaks, 8, 4, 3.5, 4.5)).toBe(0.4); // spans the seam: last bucket of the loop, then the first
   });
 });

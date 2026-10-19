@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fileUrl } from '../exportStory';
+import { loopSeekTarget, musicPosition } from './math';
 
 export type Playback = {
   /** Playhead position in video seconds. */
@@ -13,17 +14,22 @@ export type Playback = {
 
 /**
  * Preview transport. The playhead runs on the wall clock; the music (an <audio> element on a file:// URL) is started at
- * `audioOffset + time` and re-synced whenever the playhead is moved. Music that cannot be played just leaves the playhead running.
+ * `audioOffset + time` and re-synced whenever the playhead or the offset is moved. Music that cannot be played just leaves the playhead running.
+ * The music repeats at `loopSeconds` (the export's loop point: the beat grid's loop with beat sync), or at the end of the file when null.
  */
-export function usePlayback(total: number, audioPath: string | null, audioOffset: number): Playback {
+export function usePlayback(total: number, audioPath: string | null, audioOffset: number, loopSeconds: number | null): Playback {
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const playingRef = useRef(false);
+  playingRef.current = playing;
   const clock = useRef({ wall: 0, base: 0 });
   const timeRef = useRef(0);
   const totalRef = useRef(total);
   totalRef.current = total;
   const offsetRef = useRef(audioOffset);
   offsetRef.current = audioOffset;
+  const loopRef = useRef(loopSeconds);
+  loopRef.current = loopSeconds;
   const audio = useRef<{ path: string; el: HTMLAudioElement } | null>(null);
 
   const setBoth = (t: number) => { timeRef.current = t; setTime(t); };
@@ -37,11 +43,28 @@ export function usePlayback(total: number, audioPath: string | null, audioOffset
     audio.current = null;
   }, []);
 
+  /** The loop point in the file: the requested one (never past the end of the file), else the end of the file once it is known. */
+  const loopOf = (a: HTMLAudioElement): number | null => {
+    const fileEnd = Number.isFinite(a.duration) && a.duration > 0 ? a.duration : null;
+    return loopRef.current && fileEnd ? Math.min(loopRef.current, fileEnd) : loopRef.current ?? fileEnd;
+  };
+
   const audioAt = useCallback((t: number) => {
     const a = audio.current?.el;
     if (!a) return;
-    const at = offsetRef.current + t;
-    try { a.currentTime = Number.isFinite(a.duration) && a.duration > 0 ? at % a.duration : at; } catch { /* not seekable yet */ }
+    const loop = loopOf(a);
+    try { a.currentTime = musicPosition(offsetRef.current, t, loop); } catch { /* not seekable yet */ }
+  }, []);
+
+  /** Wrap the sound back at the loop point, as the export does (the element's own `loop` only wraps at the end of the file). */
+  const loopAudio = useCallback(() => {
+    const a = audio.current?.el;
+    if (!a || (a.paused && !a.ended)) return;
+    const loop = loopOf(a);
+    const to = loopSeekTarget(a.currentTime, loop, a.ended);
+    if (to === null) return;
+    try { a.currentTime = to; } catch { /* not seekable yet */ }
+    if (a.ended || a.paused) a.play().catch(() => {});
   }, []);
 
   const pause = useCallback(() => {
@@ -58,7 +81,6 @@ export function usePlayback(total: number, audioPath: string | null, audioOffset
     if (audio.current?.path !== audioPath) {
       dropAudio();
       const el = new Audio(fileUrl(audioPath));
-      el.loop = true;
       el.preload = 'auto';
       audio.current = { path: audioPath, el };
     }
@@ -90,12 +112,15 @@ export function usePlayback(total: number, audioPath: string | null, audioOffset
         return;
       }
       setBoth(t);
+      loopAudio();
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing, pause]);
+  }, [playing, pause, loopAudio]);
 
+  // The music start moved (a drag, a typed value, undo) while playing: the sound jumps to where the playhead now belongs.
+  useEffect(() => { if (playingRef.current) audioAt(timeRef.current); }, [audioOffset, loopSeconds, audioAt]);
   // A different song, or none: stop the old one.
   useEffect(() => {
     if (audio.current && audio.current.path !== audioPath) { dropAudio(); setPlaying(false); }

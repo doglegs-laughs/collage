@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type BeatAnalysis } from '../../api';
 
 export type MusicAnalysis = {
@@ -13,7 +13,7 @@ const known = new Map<string, BeatAnalysis>();
 
 const readable = (e: unknown) => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Could not analyze this music.');
 
-/** Beat analysis of the story's music: runs when `analyze()` is called, or on its own when `auto` is set. */
+/** Beat analysis of the story's music (a track with no clear beats resolves with `noBeats: true`, its waveform and duration): runs when `analyze()` is called, or on its own when `auto` is set. */
 export function useMusicAnalysis(path: string | null, auto: boolean): MusicAnalysis {
   const [state, setState] = useState<{ path: string; busy?: boolean; result?: BeatAnalysis; error?: string } | null>(null);
   const run = useRef(0);
@@ -22,7 +22,7 @@ export function useMusicAnalysis(path: string | null, auto: boolean): MusicAnaly
     if (!path) return;
     const id = ++run.current;
     setState({ path, busy: true });
-    api.analyzeAudio(path).then(
+    api.analyzeAudio(path, true).then( // soft: a track with no clear beats still gives its waveform and length
       (result) => { known.set(path, result); if (run.current === id) setState({ path, result }); },
       (e: unknown) => { if (run.current === id) setState({ path, error: readable(e) }); },
     );
@@ -37,5 +37,7 @@ export function useMusicAnalysis(path: string | null, auto: boolean): MusicAnaly
   }, [auto, path, result, busy, error, analyze]);
   useEffect(() => () => { run.current++; }, []);
 
-  return { status: !path ? 'none' : result ? 'done' : busy ? 'busy' : error ? 'error' : 'idle', result, error, analyze };
+  const status = !path ? 'none' : result ? 'done' : busy ? 'busy' : error ? 'error' : 'idle';
+  // A stable object between renders (playback ticks re-render the panel 60 times a second), so memoized rows keep their props.
+  return useMemo(() => ({ status, result, error, analyze }), [status, result, error, analyze]);
 }
