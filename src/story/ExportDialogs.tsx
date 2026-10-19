@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, type BeatAnalysis } from '../api';
 import { beatDurations } from './beatTiming';
 import { Button, Segmented, Slider } from '../ui/Controls';
 import { useToast } from '../ui/Toast';
 import { Check, Field } from './fields';
+import { NO_MEMORY, pickTransition, setBeatSync, type SyncMemory, type SyncStep } from './videoDialogState';
 import { evenPageSize, pageSize, visibleIndices, type Story, type VideoSettings } from './model';
 import type { ExportJob, ExportDone, VideoRequest } from './useExporter';
 
@@ -61,6 +62,8 @@ export function VideoDialog({ story, onVideo, onExport, onClose }: VideoProps) {
   const [analysis, setAnalysis] = useState<{ path: string; result?: BeatAnalysis; error?: string } | null>(null);
   const [retry, setRetry] = useState(0);
   const sync = v.syncToBeats && !!v.audioPath;
+  const memory = useRef<SyncMemory>(NO_MEMORY);
+  const apply = (step: SyncStep, extra: Partial<VideoSettings> = {}) => { memory.current = step.memory; onVideo({ ...step.patch, ...extra }); };
   const detected = analysis?.path === v.audioPath ? analysis.result : undefined;
   const error = analysis?.path === v.audioPath ? analysis.error : undefined;
   useEffect(() => {
@@ -88,7 +91,7 @@ export function VideoDialog({ story, onVideo, onExport, onClose }: VideoProps) {
   return (
     <Modal title="Export video" onClose={onClose} testid="video-dialog">
       <Field label="Transition between pages">
-        <Segmented<'crossfade' | 'none'> label="Transition" value={v.transition} options={[{ value: 'crossfade', label: 'Crossfade' }, { value: 'none', label: 'None' }]} onChange={(t) => onVideo({ transition: t })} />
+        <Segmented<'crossfade' | 'none'> label="Transition" value={v.transition} options={[{ value: 'crossfade', label: 'Crossfade' }, { value: 'none', label: 'None' }]} onChange={(t) => apply(pickTransition(v, memory.current, t))} />
       </Field>
       {v.transition === 'crossfade' && (
         <Field label="Transition length">
@@ -103,10 +106,10 @@ export function VideoDialog({ story, onVideo, onExport, onClose }: VideoProps) {
         <div className="music-row">
           <Button variant="soft" onClick={pick}>{music ? 'Change…' : 'Choose music…'}</Button>
           {music && <span className="music-name" title={v.audioPath ?? ''}>{music}</span>}
-          {music && <button type="button" className="link" onClick={() => onVideo({ audioPath: null, fitToMusic: false, syncToBeats: false })}>Clear</button>}
+          {music && <button type="button" className="link" onClick={() => apply(setBeatSync(v, memory.current, false), { audioPath: null, fitToMusic: false })}>Clear</button>}
         </div>
       </Field>
-      <Check label="Sync photo changes to beats" checked={sync} disabled={!music} onChange={(enabled) => onVideo({ syncToBeats: enabled, ...(enabled ? { fitToMusic: false } : {}) })} />
+      <Check label="Sync photo changes to beats" checked={sync} disabled={!music} onChange={(enabled) => apply(setBeatSync(v, memory.current, enabled))} />
       {sync && <>
         <Field label="Beats per page">
           <Segmented<'1' | '2' | '4' | '8'> label="Beats per page" value={String(v.beatsPerPage) as '1' | '2' | '4' | '8'} options={[1, 2, 4, 8].map((n) => ({ value: String(n) as '1' | '2' | '4' | '8', label: `${n} ${n === 1 ? 'beat' : 'beats'}` }))} onChange={(n) => onVideo({ beatsPerPage: Number(n) as VideoSettings['beatsPerPage'] })} />
