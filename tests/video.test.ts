@@ -75,6 +75,16 @@ describe('video', () => {
     if (process.platform !== 'darwin') expect(await video.pickEncoder()).toBe('libx264');
   });
 
+  // Runs on the macOS CI runner: proves the bundled ffmpeg's VideoToolbox path encodes without falling back.
+  it.runIf(process.platform === 'darwin')('encodes with VideoToolbox on macOS', async () => {
+    expect(await video.pickEncoder()).toBe('h264_videotoolbox');
+    const out = path.join(dir, 'vt.mp4');
+    const tried: string[] = [];
+    await video.makeVideo({ ...base(), output: out }, () => {}, { onAttempt: (e: string) => tried.push(e) });
+    expect(tried).toEqual(['h264_videotoolbox']);
+    expect(probe(out).codecs).toContain('h264');
+  }, 60000);
+
   it('retries once with libx264 when the first encoder fails', async () => {
     const out = path.join(dir, 'fallback.mp4');
     const tried: string[] = [];
