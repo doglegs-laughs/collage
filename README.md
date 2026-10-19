@@ -64,6 +64,7 @@ The builds are not code-signed, so the first launch needs one extra step:
 **Export** (top right)
 - **Images:** one JPEG per page at 1080 or 2160 px wide, numbered in order.
 - **Video:** an MP4 with crossfades and a slow zoom, optionally with music, with "fit to music" timing. Panoramas that span two slides pan left to right.
+- **Beat sync:** pick music, turn on **Sync photo changes to beats**, and choose **1, 2, 4 or 8 beats per page**. The app finds the rhythm on your computer and cuts on the beat, with no transition by default (you can still pick a crossfade, centred on the beat). Hidden pages are skipped and short tracks loop. Music with a clear rhythm works best; files up to 25 minutes.
 
 **Saving:** stories autosave and reopen where you left off. **Save** / **Open** (⌘S / ⌘O) keep named copies, and File → Open Recent lists the last ten.
 
@@ -116,10 +117,6 @@ npm run screenshots  # regenerate docs/screenshots (node scripts/screenshots.mjs
 ```
 
 Design notes and data contracts: [`docs/PLAN.md`](docs/PLAN.md).
-
-## Sync a story to music beats
-
-In **Story → Export → Video**, choose music and enable **Sync photo changes to beats**. The app detects the rhythm locally; choose **1, 2, 4, or 8 beats per page**, then make the video. Beat timing replaces manual page durations for that export, skips hidden pages, and repeats short music tracks as needed. Turn beat sync off to return to manual timing or **Fit to music length**. Music with a clear rhythm works best; analysis supports local audio files under 25 minutes.
 
 **CI and releases.** [`.github/workflows/build.yml`](.github/workflows/build.yml) builds the Mac app and the Windows installer and zip on every pull request and push to `main`. The downloads are attached to each run. When a push to `main` changes `version` in `package.json`, the `release` job publishes GitHub Release `v<version>` with all three files once both builds pass.
 
