@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { api } from '../api';
+import { api, type BeatAnalysis } from '../api';
+import { beatDurations } from './beatTiming';
 import { Button, Segmented, Slider } from '../ui/Controls';
 import { useToast } from '../ui/Toast';
 import { Check, Field } from './fields';
@@ -57,6 +58,22 @@ export function VideoDialog({ story, onVideo, onExport, onClose }: VideoProps) {
   const [width, setWidth] = useState<'720' | '1080'>('1080');
   const size = evenPageSize(story.aspect, Number(width));
   const music = v.audioPath?.split(/[\\/]/).pop() ?? null;
+  const [analysis, setAnalysis] = useState<{ path: string; result?: BeatAnalysis; error?: string } | null>(null);
+  const [retry, setRetry] = useState(0);
+  const sync = v.syncToBeats && !!v.audioPath;
+  const detected = analysis?.path === v.audioPath ? analysis.result : undefined;
+  const error = analysis?.path === v.audioPath ? analysis.error : undefined;
+  useEffect(() => {
+    const path = v.audioPath;
+    if (!v.syncToBeats || !path) { setAnalysis(null); return; }
+    let active = true;
+    setAnalysis({ path });
+    api.analyzeAudio(path).then(
+      (result) => { if (active) setAnalysis({ path, result }); },
+      (e: unknown) => { if (active) setAnalysis({ path, error: e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Could not detect beats. Try another track.' }); },
+    );
+    return () => { active = false; };
+  }, [v.syncToBeats, v.audioPath, retry]);
   const pick = async () => {
     try {
       const path = await api.openAudio();
@@ -76,24 +93,36 @@ export function VideoDialog({ story, onVideo, onExport, onClose }: VideoProps) {
         </Field>
       )}
       <Check label="Slow zoom (Ken Burns)" checked={v.kenBurns} onChange={(k) => onVideo({ kenBurns: k })} />
-      <Field label="Seconds per page" className="gap-top">
+      {!sync && <Field label="Seconds per page" className="gap-top">
         <Slider label="Seconds per page" value={pageSeconds} min={1} max={10} step={0.5} format={(x) => `${x.toFixed(1)} s`} onChange={setPageSeconds} />
-      </Field>
+      </Field>}
       <Field label="Music (optional)">
         <div className="music-row">
           <Button variant="soft" onClick={pick}>{music ? 'Change…' : 'Choose music…'}</Button>
           {music && <span className="music-name" title={v.audioPath ?? ''}>{music}</span>}
-          {music && <button type="button" className="link" onClick={() => onVideo({ audioPath: null, fitToMusic: false })}>Clear</button>}
+          {music && <button type="button" className="link" onClick={() => onVideo({ audioPath: null, fitToMusic: false, syncToBeats: false })}>Clear</button>}
         </div>
       </Field>
-      <Check label="Fit to music length" checked={v.fitToMusic && !!music} onChange={(f) => onVideo({ fitToMusic: f })} />
+      <Check label="Sync photo changes to beats" checked={sync} disabled={!music} onChange={(enabled) => onVideo({ syncToBeats: enabled, ...(enabled ? { fitToMusic: false } : {}) })} />
+      {sync && <>
+        <Field label="Beats per page">
+          <Segmented<'1' | '2' | '4' | '8'> label="Beats per page" value={String(v.beatsPerPage) as '1' | '2' | '4' | '8'} options={[1, 2, 4, 8].map((n) => ({ value: String(n) as '1' | '2' | '4' | '8', label: `${n} ${n === 1 ? 'beat' : 'beats'}` }))} onChange={(n) => onVideo({ beatsPerPage: Number(n) as VideoSettings['beatsPerPage'] })} />
+        </Field>
+        <p className="hint" role="status" data-testid="beat-status">
+          {error ? <>{error} <button type="button" className="link" onClick={() => setRetry((r) => r + 1)}>Retry</button></>
+            : detected ? `${detected.bpm} BPM · ${detected.beats.length} beats detected · ${beatDurations(visibleIndices(story).length, detected, v.beatsPerPage).reduce((a, b) => a + b, 0).toFixed(1)} s video`
+              : 'Detecting music beats…'}
+        </p>
+        <p className="hint">Each page stays for {v.beatsPerPage} beats. Beat timing replaces manual page durations. Short tracks repeat with the video.</p>
+      </>}
+      <Check label="Fit to music length" checked={v.fitToMusic && !!music && !sync} disabled={!music || sync} onChange={(f) => onVideo({ fitToMusic: f })} />
       <Field label="Size" className="gap-top">
         <Segmented<'720' | '1080'> label="Video width" value={width} options={[{ value: '720', label: '720 px' }, { value: '1080', label: '1080 px' }]} onChange={setWidth} />
       </Field>
-      <p className="hint">{visibleIndices(story).length} pages, {size.width} × {size.height} px, 30 fps. Pages whose duration you changed keep it. Seams crossed by a panorama or split photo slide as one move.</p>
+      <p className="hint">{visibleIndices(story).length} pages, {size.width} × {size.height} px, 30 fps. {!sync && 'Pages whose duration you changed keep it. '}Seams crossed by a panorama or split photo slide as one move.</p>
       <div className="btn-row end">
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" data-testid="video-go" onClick={() => { onClose(); onExport({ width: Number(width), pageSeconds, fitToMusic: v.fitToMusic && !!music }); }}>Make video…</Button>
+        <Button variant="primary" data-testid="video-go" disabled={sync && !detected} onClick={() => { onClose(); onExport({ width: Number(width), pageSeconds, fitToMusic: v.fitToMusic && !!music && !sync, ...(sync && detected && v.audioPath ? { beatSync: { analysis: detected, beatsPerPage: v.beatsPerPage, audioPath: v.audioPath } } : {}) }); }}>Make video…</Button>
       </div>
     </Modal>
   );

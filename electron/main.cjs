@@ -4,6 +4,7 @@ const path = require('node:path');
 const { atomicWrite, readImage, exists, writeSidecar } = require('./files.cjs');
 const video = require('./video.cjs');
 const store = require('./store.cjs');
+const { analyzeAudio } = require('./beats.cjs');
 
 const isMac = process.platform === 'darwin';
 const devUrl = process.env.VITE_DEV_SERVER_URL;
@@ -189,6 +190,7 @@ function registerIpc() {
     const r = await dialog.showOpenDialog(win(), { properties: ['openFile'], filters: filterFor('Audio', AUDIO_EXT) });
     return r.canceled ? null : r.filePaths[0];
   });
+  ipcMain.handle('audio:analyze', (_e, file) => analyzeAudio(file));
   ipcMain.handle('dialog:chooseFolder', async () => {
     const r = await dialog.showOpenDialog(win(), { properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];

@@ -1,4 +1,5 @@
-import { api, type VideoJob } from '../api';
+import { api, type BeatAnalysis, type VideoJob } from '../api';
+import { beatDurations } from './beatTiming';
 import { toJpeg } from '../core/canvas';
 import { getBitmapForSize } from '../core/images';
 import { crossesBoundary, evenPageSize, visibleIndices, visiblePages, type Story } from './model';
@@ -61,6 +62,7 @@ export type VideoOptions = {
   /** Seconds applied to pages whose own duration is still the default (3 s). */
   pageSeconds: number;
   fitToMusicSeconds?: number | null;
+  beatSync?: { analysis: BeatAnalysis; beatsPerPage: number };
   signal?: AbortSignal;
   onProgress?: Progress;
 };
@@ -101,7 +103,9 @@ export async function exportVideo(story: Story, o: VideoOptions): Promise<string
     frames.push(await toJpeg(canvas, 0.92));
   });
   check(o.signal);
-  const durations = videoDurations(story, o.pageSeconds, o.fitToMusicSeconds);
+  const durations = o.beatSync
+    ? beatDurations(visibleIndices(story).length, o.beatSync.analysis, o.beatSync.beatsPerPage)
+    : videoDurations(story, o.pageSeconds, o.fitToMusicSeconds);
   const v = story.video;
   const { transitions, kenBurnsPages } = videoTransitions(story);
   const shortest = Math.min(...durations);

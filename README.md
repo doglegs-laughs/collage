@@ -26,6 +26,10 @@ npm run dist:mac     # release/Collage-mac-arm64.zip, ad-hoc signed
 
 Design and contracts: `docs/PLAN.md`.
 
+## Sync a story to music beats
+
+In **Story → Export → Video**, choose music and enable **Sync photo changes to beats**. The app detects the rhythm locally; choose **1, 2, 4, or 8 beats per page**, then make the video. Beat timing replaces manual page durations for that export, skips hidden pages, and repeats short music tracks as needed. Turn beat sync off to return to manual timing or **Fit to music length**. Music with a clear rhythm works best; analysis supports local audio files under 25 minutes.
+
 ## CI
 
 `.github/workflows/build.yml` builds the Apple Silicon app and the Windows x64 installer/zip on every push to `main` and on pull requests; download it from the run's **Artifacts**. When a push to `main` carries a new `version` in `package.json`, a `release` job publishes GitHub Release `v<version>` with the Mac zip and the Windows installer and zip once both builds pass. Versions that already have a release are skipped.

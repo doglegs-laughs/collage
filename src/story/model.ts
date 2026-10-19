@@ -70,7 +70,7 @@ export type Page = {
   /** Hidden pages stay in the story (and the editor) but are left out of exports. Applies to a whole spread group. */
   hidden?: boolean;
 };
-export type VideoSettings = { transition: 'none' | 'crossfade'; transitionSeconds: number; kenBurns: boolean; audioPath: string | null; fitToMusic: boolean };
+export type VideoSettings = { transition: 'none' | 'crossfade'; transitionSeconds: number; kenBurns: boolean; audioPath: string | null; fitToMusic: boolean; syncToBeats: boolean; beatsPerPage: 1 | 2 | 4 | 8 };
 export type Story = {
   version: 1;
   title: string;
@@ -121,7 +121,7 @@ export function makeRng(seed: number): () => number {
 
 /* ---------- factories ---------- */
 
-export const DEFAULT_VIDEO: VideoSettings = { transition: 'crossfade', transitionSeconds: 0.6, kenBurns: false, audioPath: null, fitToMusic: false };
+export const DEFAULT_VIDEO: VideoSettings = { transition: 'crossfade', transitionSeconds: 0.6, kenBurns: false, audioPath: null, fitToMusic: false, syncToBeats: false, beatsPerPage: 4 };
 
 export function emptyStory(aspect: Aspect = '4:5', style: StyleId = 'clean'): Story {
   return { version: 1, title: '', aspect, style, background: '#ffffff', pages: [], photos: [], video: { ...DEFAULT_VIDEO } };
@@ -465,6 +465,10 @@ export function deserializeStory(json: string): Story {
     background: typeof raw.background === 'string' ? raw.background : '#ffffff',
     pages,
     photos,
-    video: { ...DEFAULT_VIDEO, ...(v as Partial<VideoSettings>) },
+    video: {
+      ...DEFAULT_VIDEO, ...(v as Partial<VideoSettings>),
+      syncToBeats: v.syncToBeats === true,
+      beatsPerPage: [1, 2, 4, 8].includes(v.beatsPerPage as number) ? v.beatsPerPage as 1 | 2 | 4 | 8 : 4,
+    },
   };
 }
