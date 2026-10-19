@@ -1,0 +1,70 @@
+import { createRequire } from 'node:module';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+
+type Sidecar = { id: string; name: string; data: Uint8Array };
+const { createAutosaveStore } = createRequire(import.meta.url)('../electron/store.cjs') as {
+  createAutosaveStore(dir: string): {
+    write(json: string, sidecar: Sidecar[], meta: object): Promise<void>;
+    read(): Promise<{ json: string; meta: { title: string } } | null>;
+    clear(): Promise<void>;
+  };
+};
+const project = (title: string) => JSON.stringify({ title, photos: [{ id: 'x' }] });
+const sidecar = [{ id: 'x', name: 'photo.jpg', data: new Uint8Array([1, 2, 3]) }];
+let dir: string;
+beforeEach(async () => { dir = await fs.mkdtemp(path.join(os.tmpdir(), 'autosave-queue-')); });
+afterEach(async () => { vi.restoreAllMocks(); await fs.rm(dir, { recursive: true, force: true }); });
+
+function pauseFirstWrite() {
+  const original = fs.writeFile;
+  let resume!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((r) => { resume = r; });
+  const ready = new Promise<void>((r) => { started = r; });
+  vi.spyOn(fs, 'writeFile').mockImplementationOnce(async (file, ...args) => {
+    started();
+    await gate;
+    return original(file, ...args);
+  });
+  return { ready, resume };
+}
+
+it('keeps the latest story, metadata and sidecar paths when a first save is slow', async () => {
+  const store = createAutosaveStore(dir);
+  const pause = pauseFirstWrite();
+  const first = store.write(project('older'), sidecar, { title: 'older' });
+  await pause.ready;
+  const second = store.write(project('newer'), [], { title: 'newer' });
+  const read = store.read();
+  pause.resume();
+  await Promise.all([first, second]);
+  const saved = (await read)!;
+  expect(JSON.parse(saved.json).title).toBe('newer');
+  expect(saved.meta.title).toBe('newer');
+  const photoPath = JSON.parse(saved.json).photos[0].path;
+  expect([...await fs.readFile(photoPath)]).toEqual([1, 2, 3]);
+});
+
+it('clears after an in-flight write and resets sidecar paths for subsequent saves', async () => {
+  const store = createAutosaveStore(dir);
+  const pause = pauseFirstWrite();
+  const write = store.write(project('old'), sidecar, {});
+  await pause.ready;
+  const clear = store.clear();
+  pause.resume();
+  await Promise.all([write, clear]);
+  expect(await store.read()).toBeNull();
+  expect(await fs.readdir(dir)).toEqual([]);
+  await store.write(project('new'), [], {});
+  expect(JSON.parse((await store.read())!.json).photos[0].path).toBeUndefined();
+});
+
+it('recovers after a failed save', async () => {
+  const store = createAutosaveStore(dir);
+  await expect(store.write('invalid json', [], {})).rejects.toThrow();
+  await store.write(project('recovered'), sidecar, { title: 'recovered' });
+  expect(JSON.parse((await store.read())!.json).title).toBe('recovered');
+});

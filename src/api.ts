@@ -29,7 +29,7 @@ export interface Api {
   readFile(path: string): Promise<Uint8Array>;
   saveFile(opts: { defaultName: string; filters: FileFilter[]; data: Uint8Array }): Promise<string | null>;
   chooseFolder(): Promise<string | null>;
-  /** Atomic temp + rename. Refuses to replace an existing file unless `overwrite` is true. */
+  /** Temp + rename/link, or exclusive copy on filesystems without hard links. Refuses to replace an existing file unless `overwrite` is true. */
   writeFile(path: string, data: Uint8Array, options?: { overwrite?: boolean }): Promise<void>;
   exists(path: string): Promise<boolean>;
   /** Resolves to the output path, or '' if the user cancelled the save dialog. */

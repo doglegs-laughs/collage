@@ -74,4 +74,26 @@ async function clearAutosave(dir) {
   await fs.rm(photosDir(dir), { recursive: true, force: true });
 }
 
-module.exports = { MAX_RECENT_STORIES, addRecent, removeRecent, loadRecents, saveRecents, describeRecents, writeAutosave, readAutosave, clearAutosave };
+/** Serialize writes, reads and clears, including the sidecar path bookkeeping. */
+function createAutosaveStore(dir) {
+  let paths = {};
+  let pending = Promise.resolve();
+  const enqueue = (operation) => {
+    const result = pending.then(operation);
+    // A failed save must not prevent the next save or a clear from running.
+    pending = result.catch(() => {});
+    return result;
+  };
+  return {
+    write: (json, sidecar, meta) => enqueue(async () => {
+      paths = await writeAutosave(dir, json, sidecar, paths, meta);
+    }),
+    read: () => enqueue(() => readAutosave(dir)),
+    clear: () => enqueue(async () => {
+      await clearAutosave(dir);
+      paths = {};
+    }),
+  };
+}
+
+module.exports = { MAX_RECENT_STORIES, addRecent, removeRecent, loadRecents, saveRecents, describeRecents, writeAutosave, readAutosave, clearAutosave, createAutosaveStore };
