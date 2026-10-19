@@ -4,37 +4,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { BeatAnalysis } from '../src/api';
-import { beatDurations } from '../src/story/beatTiming';
+import { beatDurations, beatLoopSeconds } from '../src/story/beatTiming';
+import { boundaryTransitionSeconds } from '../src/story/exportStory';
+import { clicks, RATE, wav } from './helpers/wav';
 import { deserializeStory, emptyStory, serializeStory } from '../src/story/model';
 
-const { detectBeats, analyzeAudio } = createRequire(import.meta.url)('../electron/beats.cjs') as {
+const require = createRequire(import.meta.url);
+const { detectBeats, analyzeAudio } = require('../electron/beats.cjs') as {
   detectBeats(samples: Float32Array, sampleRate?: number): BeatAnalysis;
   analyzeAudio(file: string): Promise<BeatAnalysis>;
 };
-const RATE = 11025;
-
-function clicks(bpm: number, duration = 12, offset = 0.2): Float32Array {
-  const samples = new Float32Array(RATE * duration);
-  for (let t = offset, beat = 0; t < duration; t += 60 / bpm, beat++) {
-    const level = beat % 4 === 0 ? 0.9 : 0.65;
-    for (let i = 0; i < RATE * 0.07; i++) {
-      const at = Math.floor(t * RATE) + i;
-      if (at < samples.length) samples[at] += level * Math.sin(2 * Math.PI * 90 * i / RATE) * Math.exp(-i / (RATE * 0.015));
-    }
-  }
-  return samples;
-}
-
-function wav(samples: Float32Array): Buffer {
-  const out = Buffer.alloc(44 + samples.length * 2);
-  out.write('RIFF'); out.writeUInt32LE(out.length - 8, 4); out.write('WAVEfmt ', 8);
-  out.writeUInt32LE(16, 16); out.writeUInt16LE(1, 20); out.writeUInt16LE(1, 22);
-  out.writeUInt32LE(RATE, 24); out.writeUInt32LE(RATE * 2, 28); out.writeUInt16LE(2, 32); out.writeUInt16LE(16, 34);
-  out.write('data', 36); out.writeUInt32LE(samples.length * 2, 40);
-  samples.forEach((s, i) => out.writeInt16LE(Math.round(s * 32767), 44 + i * 2));
-  return out;
-}
-
 describe('local beat detection', () => {
   it.each([60, 75, 90, 110, 120, 150, 180, 195])('finds a %i BPM rhythm and its actual onset times', (bpm) => {
     const result = detectBeats(clicks(bpm));
@@ -47,10 +26,17 @@ describe('local beat detection', () => {
     }
   });
 
-  it('keeps the first beat when music starts on a beat', () => {
+  it('finds a beat at the very start of the music, to within one analysis frame', () => {
     const result = detectBeats(clicks(120, 6, 0));
-    expect(result.beats[0]).toBe(0);
-    expect(result.beats).toHaveLength(12);
+    expect(result.beats[0]).toBeLessThan(0.08);
+    expect(result.beats.length).toBeGreaterThanOrEqual(11);
+  });
+
+  it('does not invent a beat at 0 s for a track that already has sound at the start', () => {
+    const samples = clicks(120, 8, 0.3).map((s, i) => s + 0.2 * Math.sin(2 * Math.PI * 440 * i / RATE));
+    const result = detectBeats(samples);
+    expect(Math.min(...result.beats)).toBeGreaterThanOrEqual(0.25);
+    expect(result.beats[0]).toBeCloseTo(0.3, 1);
   });
 
   it('follows gradual tempo changes without skipping beats or trimming the intro', () => {
@@ -73,6 +59,45 @@ describe('local beat detection', () => {
     const tone = Float32Array.from({ length: RATE * 6 }, (_, i) => 0.3 * Math.sin(2 * Math.PI * 440 * i / RATE));
     expect(() => detectBeats(tone)).toThrow(/beats|steady beat/);
     expect(() => detectBeats(new Float32Array(100))).toThrow(/too short/);
+  });
+
+  it('runs the analysis worker from inline source, so a path inside app.asar cannot break it', async () => {
+    const fs2 = await import('node:fs');
+    const real = require.resolve('../electron/beats.cjs');
+    const source = fs2.readFileSync(real, 'utf8');
+    const fakeModule = { exports: {} as { analyzeAudio(file: string): Promise<BeatAnalysis>; workerSource(): string } };
+    const localRequire = createRequire(real);
+    new Function('require', 'module', 'exports', '__filename', '__dirname', source)(
+      localRequire, fakeModule, fakeModule.exports, '/Applications/Collage.app/Contents/Resources/app.asar/electron/beats.cjs', '/Applications/Collage.app/Contents/Resources/app.asar/electron');
+    expect(fakeModule.exports.workerSource()).not.toContain('__filename');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'beats-asar-'));
+    try {
+      const file = path.join(dir, 'rhythm.wav');
+      await fs.writeFile(file, wav(clicks(120, 6)));
+      expect((await fakeModule.exports.analyzeAudio(file)).bpm).toBe(120);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('caches results by file, shares in-flight runs and cancels the previous track', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'beats-cache-'));
+    try {
+      const a = path.join(dir, 'a.wav'), b = path.join(dir, 'file:b.wav');
+      await fs.writeFile(a, wav(clicks(120, 8)));
+      await fs.writeFile(b, wav(clicks(100, 8)));
+      const first = analyzeAudio(a);
+      const twin = analyzeAudio(a); // shares the same in-flight run
+      const settled = Promise.allSettled([first, twin]);
+      const second = analyzeAudio(b); // a different track stops the first run
+      expect(Math.abs((await second).bpm - 100)).toBeLessThanOrEqual(2);
+      expect((await settled).map((r) => r.status === 'rejected' && r.reason.name)).toEqual(['AbortError', 'AbortError']);
+      const cached = await analyzeAudio(b);
+      expect(await analyzeAudio(b)).toBe(cached); // served from the cache
+      expect((await analyzeAudio(a)).bpm).toBe(120); // protocol-like names are read as files too
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('decodes a real music file with FFmpeg and analyzes it in a worker', async () => {
@@ -108,6 +133,44 @@ describe('beat-based photo timing', () => {
   it('uses irregular detected times rather than inventing cuts from the BPM', () => {
     const result = beatDurations(3, { beats: [0.1, 0.53, 1.06, 1.55], bpm: 120, duration: 2.1 }, 1);
     expect(result.map((_, i) => result.slice(0, i + 1).reduce((a, b) => a + b, 0))).toEqual([16 / 30, 32 / 30, 47 / 30]);
+  });
+
+  it('merges pages that would be shorter than the minimum into the next beat', () => {
+    // Beats 0.2 s apart for the first second, then 0.5 s apart.
+    const beats = [0.1, 0.3, 0.5, 0.7, 0.9, 1.4, 1.9, 2.4, 2.9];
+    const durations = beatDurations(4, { beats, bpm: 120, duration: 3.4 }, 1);
+    expect(Math.min(...durations)).toBeGreaterThanOrEqual(0.5 - 1e-9);
+    const ends = durations.map((_, i) => durations.slice(0, i + 1).reduce((a, b) => a + b, 0));
+    for (const end of ends) expect(beats.some((t) => Math.abs(t - end) <= 1 / 60 + 1e-9)).toBe(true);
+  });
+
+  it('keeps one short page from shrinking every crossfade', () => {
+    expect(boundaryTransitionSeconds([4, 0.5, 4, 4], 1)).toEqual([0.4, 0.4, 1]);
+    expect(boundaryTransitionSeconds([2], 1)).toEqual([]);
+  });
+
+  it('repeats short music from the last beat plus one beat interval, not the file length', () => {
+    // 4 beats at 0.5 s and 5 s of silence: the file is 7.2 s long but the pulse repeats every 2.2 s.
+    const analysis: BeatAnalysis = { beats: [0.2, 0.7, 1.2, 1.7], bpm: 120, duration: 7.2 };
+    expect(beatLoopSeconds(analysis, 4)).toBeCloseTo(2.2);
+    const durations = beatDurations(6, analysis, 4);
+    expect(Math.max(...durations)).toBeLessThanOrEqual(0.5 * 4 * 1.5 + 1e-9);
+    durations.slice(0, 3).forEach((d, i) => expect(d).toBeCloseTo(i === 0 ? 2.4 : 2.2, 1));
+  });
+
+  it('inserts extrapolated beats across a long silent gap in the middle of a track', () => {
+    const analysis: BeatAnalysis = { beats: [0.2, 0.7, 1.2, 1.7, 6.7, 7.2, 7.7, 8.2], bpm: 120, duration: 9 };
+    const durations = beatDurations(8, analysis, 1);
+    expect(Math.max(...durations)).toBeLessThanOrEqual(0.5 * 1.5 + 1 / 30);
+  });
+
+  it('detects a track that ends in five seconds of silence and times pages without a huge one', () => {
+    const track = new Float32Array(RATE * 12);
+    track.set(clicks(120, 7, 0.2));
+    const analysis = detectBeats(track);
+    expect(analysis.duration).toBe(12);
+    const durations = beatDurations(12, analysis, 4);
+    expect(Math.max(...durations)).toBeLessThanOrEqual(60 / analysis.bpm * 4 * 1.5 + 1 / 15);
   });
 
   it('rejects invalid or out-of-order beats and unsupported pacing', () => {

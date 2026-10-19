@@ -9,6 +9,12 @@ export interface VideoJob {
   /** Per-boundary override (length = frames - 1). 'slide' pans both pages together. */
   transitions?: ('none' | 'crossfade' | 'slide')[];
   transitionSeconds: number;
+  /** Per-boundary fade length (length = frames - 1); overrides `transitionSeconds` where present. */
+  transitionDurations?: number[];
+  /** Photo changes are timed to music beats: fades are centred on the boundary instead of starting at it. */
+  beatSync?: boolean;
+  /** Music repeats every this many seconds (shorter than the file when it ends in silence). */
+  audioLoopSeconds?: number;
   kenBurns: boolean;
   /** Per-page Ken Burns switch (length = frames); overrides `kenBurns` when present. */
   kenBurnsPages?: boolean[];

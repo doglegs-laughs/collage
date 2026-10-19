@@ -42,7 +42,16 @@ function validate(job) {
     if (typeof transitionSeconds !== 'number' || !Number.isFinite(transitionSeconds) || transitionSeconds <= 0) {
       throw new Error('transitionSeconds must be greater than 0');
     }
-    if (transitionSeconds >= Math.min(...durations)) throw new Error('transitionSeconds must be shorter than every page duration');
+    const { transitionDurations } = job;
+    if (transitionDurations !== undefined) {
+      if (!Array.isArray(transitionDurations) || transitionDurations.length !== frames.length - 1) throw new Error('transitionDurations must have length frames-1');
+      kinds.forEach((kind, i) => {
+        if (kind === 'none') return;
+        const t = transitionDurations[i];
+        if (typeof t !== 'number' || !Number.isFinite(t) || t <= 0) throw new Error('transitionDurations must be greater than 0');
+        if (t >= Math.min(durations[i], durations[i + 1])) throw new Error('transitionDurations must be shorter than both neighbouring page durations');
+      });
+    } else if (transitionSeconds >= Math.min(...durations)) throw new Error('transitionSeconds must be shorter than every page duration');
   }
 }
 
@@ -86,10 +95,16 @@ function buildArgs(job, size, paths) {
   const n = job.frames.length;
   const fps = job.fps;
   const durations = job.durations;
-  const T = job.transitionSeconds || 0;
   const kinds = boundaryKinds(job);
+  const fade = (i) => (kinds[i] === 'none' ? 0 : (job.transitionDurations && job.transitionDurations[i]) || job.transitionSeconds || 0);
+  // Beat sync centres each fade on the beat (boundary), so the new photo is fully in by boundary + T/2.
+  // Otherwise a fade starts at the boundary. Either way the total length is the sum of the durations.
+  const centred = !!job.beatSync;
   const total = durations.reduce((a, b) => a + b, 0);
-  const lens = durations.map((d, i) => (i < n - 1 && kinds[i] !== 'none' ? d + T : d));
+  const lens = durations.map((d, i) => {
+    const before = i > 0 ? fade(i - 1) : 0, after = i < n - 1 ? fade(i) : 0;
+    return centred ? d + before / 2 + after / 2 : d + after;
+  });
   const useKb = (i) => (job.kenBurnsPages ? !!job.kenBurnsPages[i] : !!job.kenBurns);
 
   const args = ['-y', '-hide_banner', '-loglevel', 'error'];
@@ -116,12 +131,13 @@ function buildArgs(job, size, paths) {
     let offset = 0;
     for (let i = 1; i < n; i++) {
       offset += durations[i - 1];
+      const T = fade(i - 1);
       const out = i === n - 1 ? 'vout' : `x${i}`;
       const kind = kinds[i - 1];
       if (kind === 'none') filters.push(`[${acc}][v${i}]concat=n=2:v=1:a=0,settb=1/${fps}[${out}]`);
       else {
         const name = kind === 'slide' ? 'slideleft' : 'fade';
-        filters.push(`[${acc}][v${i}]xfade=transition=${name}:duration=${num(T)}:offset=${num(offset)}[${out}]`);
+        filters.push(`[${acc}][v${i}]xfade=transition=${name}:duration=${num(T)}:offset=${num(centred ? offset - T / 2 : offset)}[${out}]`);
       }
       acc = out;
     }
@@ -129,9 +145,16 @@ function buildArgs(job, size, paths) {
   }
 
   if (job.audioPath) {
-    args.push('-stream_loop', '-1', '-i', job.audioPath);
-    const fade = Math.min(1.5, total);
-    filters.push(`[${n}:a]atrim=0:${num(total)},asetpts=PTS-STARTPTS,afade=t=out:st=${num(Math.max(0, total - fade))}:d=${num(fade)}[aout]`);
+    // A loop shorter than the file (it ends in silence) is cut and repeated in the filter graph.
+    const loop = job.audioLoopSeconds;
+    const trimLoop = typeof loop === 'number' && loop > 0 && loop < total;
+    if (!trimLoop) args.push('-stream_loop', '-1');
+    args.push('-i', job.audioPath);
+    const out = Math.min(1.5, total);
+    const source = trimLoop
+      ? `aresample=48000,atrim=0:${num(loop)},asetpts=PTS-STARTPTS,aloop=loop=-1:size=${Math.round(loop * 48000)}:start=0,`
+      : '';
+    filters.push(`[${n}:a]${source}atrim=0:${num(total)},asetpts=PTS-STARTPTS,afade=t=out:st=${num(Math.max(0, total - out))}:d=${num(out)}[aout]`);
   }
 
   args.push('-filter_complex', filters.join(';'));
