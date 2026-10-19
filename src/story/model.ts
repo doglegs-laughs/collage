@@ -70,7 +70,18 @@ export type Page = {
   /** Hidden pages stay in the story (and the editor) but are left out of exports. Applies to a whole spread group. */
   hidden?: boolean;
 };
-export type VideoSettings = { transition: 'none' | 'crossfade'; transitionSeconds: number; kenBurns: boolean; audioPath: string | null; fitToMusic: boolean; syncToBeats: boolean; beatsPerPage: 1 | 2 | 4 | 8 };
+export type BoundaryTransition = 'none' | 'crossfade' | 'slide';
+export const BOUNDARY_TRANSITIONS: readonly BoundaryTransition[] = ['none', 'crossfade', 'slide'];
+/**
+ * Optional manual timing, edited in the Timeline panel. Absent = timing comes from page durations or beat sync alone.
+ * `locked`: manual clip lengths in seconds by page id. `transitions`: override for the boundary AFTER that page.
+ */
+export type Timeline = { audioOffset: number; locked: Record<string, number>; transitions: Record<string, BoundaryTransition> };
+export const MIN_CLIP_SECONDS = 0.2;
+export const MAX_CLIP_SECONDS = 60;
+export type VideoSettings = { transition: 'none' | 'crossfade'; transitionSeconds: number; kenBurns: boolean; audioPath: string | null; fitToMusic: boolean; syncToBeats: boolean; beatsPerPage: 1 | 2 | 4 | 8;
+  /** Seconds for pages whose own duration is still the default 3 s (the video dialog's slider). Absent = 3. */
+  pageSeconds?: number; timeline?: Timeline };
 export type Story = {
   version: 1;
   title: string;
@@ -350,7 +361,7 @@ export function addPage(story: Story, page: Page = emptyPage(story.background), 
 export function removePage(story: Story, pageIndex: number): Story {
   if (pageIndex < 0 || pageIndex >= story.pages.length) return story;
   const { start, end } = groupOf(story, pageIndex);
-  return clipStrayOverflow({ ...story, pages: story.pages.filter((_, i) => i < start || i >= end) });
+  return normalizeTimeline(clipStrayOverflow({ ...story, pages: story.pages.filter((_, i) => i < start || i >= end) }));
 }
 /** Copy a page, or its whole spread group, with fresh ids; the copy goes right after the original. */
 export function duplicatePage(story: Story, pageIndex: number): Story {
@@ -455,6 +466,10 @@ export function deserializeStory(json: string): Story {
     });
   }
   const v = isObj(raw.video) ? raw.video : {};
+  const timeline = readTimeline(v.timeline, new Set(pages.map((p) => p.id)));
+  delete (v as Partial<VideoSettings>).timeline; // re-added below only when valid
+  const pageSeconds = typeof v.pageSeconds === 'number' && Number.isFinite(v.pageSeconds) ? Math.min(10, Math.max(1, v.pageSeconds)) : undefined;
+  delete (v as Partial<VideoSettings>).pageSeconds;
   const style = STYLE_IDS.includes(raw.style as StyleId) ? (raw.style as StyleId) : 'clean';
   return {
     version: 1,
@@ -469,6 +484,51 @@ export function deserializeStory(json: string): Story {
       ...DEFAULT_VIDEO, ...(v as Partial<VideoSettings>),
       syncToBeats: v.syncToBeats === true,
       beatsPerPage: [1, 2, 4, 8].includes(v.beatsPerPage as number) ? v.beatsPerPage as 1 | 2 | 4 | 8 : 4,
+      ...(pageSeconds !== undefined ? { pageSeconds } : {}),
+      ...(timeline ? { timeline } : {}),
     },
   };
+}
+
+/** Validate a saved timeline: offset >= 0, durations clamped to 0.2-60 s, entries for pages that no longer exist dropped. */
+function readTimeline(raw: unknown, pageIds: ReadonlySet<string>): Timeline | undefined {
+  if (!isObj(raw)) return undefined;
+  const audioOffset = typeof raw.audioOffset === 'number' && Number.isFinite(raw.audioOffset) ? Math.max(0, raw.audioOffset) : 0;
+  const locked: Record<string, number> = {};
+  if (isObj(raw.locked)) {
+    for (const [id, d] of Object.entries(raw.locked)) {
+      if (pageIds.has(id) && typeof d === 'number' && Number.isFinite(d)) locked[id] = Math.min(MAX_CLIP_SECONDS, Math.max(MIN_CLIP_SECONDS, d));
+    }
+  }
+  const transitions: Record<string, BoundaryTransition> = {};
+  if (isObj(raw.transitions)) {
+    for (const [id, t] of Object.entries(raw.transitions)) {
+      if (pageIds.has(id) && BOUNDARY_TRANSITIONS.includes(t as BoundaryTransition)) transitions[id] = t as BoundaryTransition;
+    }
+  }
+  const t: Timeline = { audioOffset, locked, transitions };
+  return timelineIsEmpty(t) ? undefined : t;
+}
+
+/** A timeline with no manual length, no transition override and no music start says nothing, so it is stored as absent. */
+export const timelineIsEmpty = (t: Timeline) => t.audioOffset === 0 && !Object.keys(t.locked).length && !Object.keys(t.transitions).length;
+
+/**
+ * Drop timeline entries for pages that are gone and the whole timeline when nothing is left. Returns `story` itself when nothing changes.
+ * Applied after every story change, so a deleted or regenerated page never leaves a stale id behind.
+ */
+export function normalizeTimeline(story: Story): Story {
+  const t = story.video.timeline;
+  if (!t) return story;
+  const ids = new Set(story.pages.map((p) => p.id));
+  const keep = <V,>(o: Record<string, V>) => Object.fromEntries(Object.entries(o).filter(([id]) => ids.has(id)));
+  const locked = keep(t.locked), transitions = keep(t.transitions);
+  const same = Object.keys(locked).length === Object.keys(t.locked).length && Object.keys(transitions).length === Object.keys(t.transitions).length;
+  const next: Timeline = same ? t : { ...t, locked, transitions };
+  if (timelineIsEmpty(next)) {
+    const { timeline: _gone, ...video } = story.video;
+    void _gone;
+    return { ...story, video };
+  }
+  return next === t ? story : { ...story, video: { ...story.video, timeline: next } };
 }

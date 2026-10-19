@@ -34,16 +34,25 @@ export function beatGrid(analysis: BeatAnalysis, beatsPerPage: number): { beats:
   return { beats: filled, loopSeconds: Math.min(duration, beats[beats.length - 1] + interval) };
 }
 
-/**
- * Page boundaries follow detected music beats; music repeats as `beatGrid` describes.
- * A page shorter than `minSeconds` is merged into the next one by moving its end to a later beat.
- */
-export function beatDurations(count: number, analysis: BeatAnalysis, beatsPerPage: number, fps = 30, minSeconds = MIN_BEAT_PAGE_SECONDS): number[] {
+/** True when the analysis found a usable beat grid (a track with "no clear beats" still has a duration and a waveform). */
+export function hasBeats(analysis: BeatAnalysis | undefined): analysis is BeatAnalysis {
+  return !!analysis && !analysis.noBeats && analysis.beats.length >= 2;
+}
+
+export function assertBeatAnalysis(analysis: BeatAnalysis, beatsPerPage: number): void {
   const { beats, duration } = analysis;
   if (![1, 2, 4, 8].includes(beatsPerPage) || !Number.isFinite(duration) || !(duration > 0) || beats.length < 2 ||
     beats.some((t, i) => !Number.isFinite(t) || t < 0 || t >= duration || (i > 0 && t <= beats[i - 1]))) {
     throw new Error('Beat timing is unavailable. Analyze the music again.');
   }
+}
+
+/**
+ * Page boundaries follow detected music beats; music repeats as `beatGrid` describes.
+ * A page shorter than `minSeconds` is merged into the next one by moving its end to a later beat.
+ */
+export function beatDurations(count: number, analysis: BeatAnalysis, beatsPerPage: number, fps = 30, minSeconds = MIN_BEAT_PAGE_SECONDS): number[] {
+  assertBeatAnalysis(analysis, beatsPerPage);
   const grid = beatGrid(analysis, beatsPerPage);
   const frameAt = (index: number) => Math.round((Math.floor(index / grid.beats.length) * grid.loopSeconds + grid.beats[index % grid.beats.length]) * fps);
   const minFrames = Math.max(1, Math.ceil(minSeconds * fps - 1e-9));
@@ -56,6 +65,49 @@ export function beatDurations(count: number, analysis: BeatAnalysis, beatsPerPag
     previousFrame = frame;
     return seconds;
   });
+}
+
+export type BeatClock = {
+  /** Video time (seconds) of the i-th beat from the start of the video. */
+  at(i: number): number;
+  /** Smallest i whose beat is at or after `t - tolerance`. */
+  indexAtOrAfter(t: number, tolerance?: number): number;
+  /** All beats up to video time `until`; `index` is the beat's place in the music's own grid (0 = first beat of the file). */
+  upTo(until: number): { time: number; index: number }[];
+};
+
+/**
+ * The beat grid as seen by a video whose first second is music second `offset`: beats before the offset are ignored,
+ * the rest are shifted by `-offset`, and the music repeats like `beatDurations` assumes.
+ */
+export function beatClock(analysis: BeatAnalysis, beatsPerPage: number, offset = 0): BeatClock {
+  assertBeatAnalysis(analysis, beatsPerPage);
+  const grid = beatGrid(analysis, beatsPerPage);
+  const len = grid.beats.length;
+  const music = (n: number) => Math.floor(n / len) * grid.loopSeconds + grid.beats[n % len];
+  let first = Math.max(0, Math.floor(offset / grid.loopSeconds)) * len;
+  while (music(first) < offset - 1e-6) first++;
+  const at = (i: number) => music(first + i) - offset;
+  const indexAtOrAfter = (t: number, tolerance = 0) => {
+    let hi = 1;
+    while (at(hi) < t - tolerance) hi *= 2;
+    let lo = 0;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (at(mid) < t - tolerance) lo = mid + 1; else hi = mid;
+    }
+    return lo;
+  };
+  const upTo = (until: number) => {
+    const out: { time: number; index: number }[] = [];
+    for (let i = 0; ; i++) {
+      const time = at(i);
+      if (time > until) break;
+      out.push({ time, index: first + i });
+    }
+    return out;
+  };
+  return { at, indexAtOrAfter, upTo };
 }
 
 /** Music repeat length for the video job, matching `beatDurations`. */

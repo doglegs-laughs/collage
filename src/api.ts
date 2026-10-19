@@ -19,6 +19,8 @@ export interface VideoJob {
   /** Per-page Ken Burns switch (length = frames); overrides `kenBurns` when present. */
   kenBurnsPages?: boolean[];
   audioPath?: string;
+  /** The music starts this many seconds into the file (after any looping). */
+  audioStartSeconds?: number;
   fps: number;
   /** Cache key from `videoCacheLookup`. With no frames, the cached video is copied to the output; with frames, the finished video is kept in the cache under this key. */
   cacheKey?: string;
@@ -29,7 +31,12 @@ export interface VideoCacheLookup { key: string | null; hit: boolean }
 /** A photo that has no file on disk (pasted, sent from Collage); saved beside the project so it can be found again. */
 export interface SidecarPhoto { id: string; name: string; data: Uint8Array }
 
-export interface BeatAnalysis { beats: number[]; duration: number; bpm: number }
+/** `peaks`: loudness envelope for drawing the waveform, 0..1 per bucket across `duration` (absent in analyses made before it existed). */
+export interface BeatAnalysis {
+  beats: number[]; duration: number; bpm: number; peaks?: number[];
+  /** Set (with `beats: []`) when the track decoded but no steady beat was found: it still has a duration and a waveform. `reason` says why. */
+  noBeats?: boolean; reason?: string;
+}
 
 export interface FileFilter { name: string; extensions: string[] }
 
@@ -38,7 +45,8 @@ export interface Api {
   pathForFile(file: File): string;
   openImages(): Promise<string[]>;
   openAudio(): Promise<string | null>;
-  analyzeAudio(path: string): Promise<BeatAnalysis>;
+  /** Rejects when no beats are found, unless `soft` is set: then such a track resolves with `noBeats: true`, its waveform and duration. */
+  analyzeAudio(path: string, soft?: boolean): Promise<BeatAnalysis>;
   readFile(path: string): Promise<Uint8Array>;
   saveFile(opts: { defaultName: string; filters: FileFilter[]; data: Uint8Array }): Promise<string | null>;
   chooseFolder(): Promise<string | null>;

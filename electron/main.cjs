@@ -191,7 +191,7 @@ function registerIpc() {
     const r = await dialog.showOpenDialog(win(), { properties: ['openFile'], filters: filterFor('Audio', AUDIO_EXT) });
     return r.canceled ? null : r.filePaths[0];
   });
-  ipcMain.handle('audio:analyze', (_e, file) => analyzeAudio(file));
+  ipcMain.handle('audio:analyze', (_e, file, soft) => analyzeAudio(file, soft === true));
   ipcMain.handle('dialog:chooseFolder', async () => {
     const r = await dialog.showOpenDialog(win(), { properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];

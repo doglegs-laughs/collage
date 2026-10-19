@@ -1,8 +1,9 @@
 import { api, type BeatAnalysis } from '../api';
-import { beatDurations, beatLoopSeconds } from './beatTiming';
+import { beatLoopSeconds } from './beatTiming';
+import { boundaryTransitionSeconds, computeTimeline, defaultBoundaries, DEFAULT_PAGE_SECONDS, TIMELINE_FPS, timelineOptions } from './timeline';
 import { toJpeg } from '../core/canvas';
 import { getBitmapForSize } from '../core/images';
-import { crossesBoundary, evenPageSize, visibleIndices, visiblePages, type Story } from './model';
+import { evenPageSize, visibleIndices, visiblePages, type Story } from './model';
 import { renderPage, type GetBitmap, type PageCanvas } from './render';
 import { FRAME_JPEG_QUALITY, FrameCache, pageSignature, videoCacheSpec, type VideoPlan } from './videoCache';
 
@@ -69,7 +70,7 @@ export type VideoOptions = {
   /** Called when an identical video was already made, so nothing is rendered or encoded. */
   onCached?: () => void;
 };
-export const DEFAULT_PAGE_SECONDS = 3;
+export { boundaryTransitionSeconds, DEFAULT_PAGE_SECONDS };
 
 /**
  * Scale page durations so they add up to at most `musicSeconds`. Pages are laid end to end
@@ -94,18 +95,13 @@ export function videoDurations(story: Story, pageSeconds: number, musicSeconds?:
  * With beat sync and no transition chosen, seams cut like every other boundary (the slide only returns when the user picks crossfade).
  */
 export function videoTransitions(story: Story, beatSync = false): { transitions: ('none' | 'crossfade' | 'slide')[]; kenBurnsPages: boolean[] } {
-  const idx = visibleIndices(story);
-  const n = idx.length;
-  // A seam only slides when its two pages are neighbours in the story; a hidden page between them makes it an ordinary cut.
-  const cuts = beatSync && story.video.transition === 'none';
-  const transitions = Array.from({ length: Math.max(0, n - 1) }, (_, k) => (!cuts && idx[k + 1] === idx[k] + 1 && crossesBoundary(story, idx[k]) ? ('slide' as const) : story.video.transition));
-  const kenBurnsPages = idx.map((_, i) => story.video.kenBurns && transitions[i - 1] !== 'slide' && transitions[i] !== 'slide');
-  return { transitions, kenBurnsPages };
+  return transitionPlan(story, defaultBoundaries(story, beatSync));
 }
 
-/** Crossfade length for each page boundary: the chosen length, capped by 80% of the shorter adjacent page. */
-export function boundaryTransitionSeconds(durations: number[], seconds: number): number[] {
-  return durations.slice(1).map((d, i) => Math.min(seconds, Math.min(durations[i], d) * 0.8));
+/** Ken Burns is off for a page beside a slide, whatever the transitions came from. */
+function transitionPlan(story: Story, transitions: ('none' | 'crossfade' | 'slide')[]) {
+  const kenBurnsPages = visibleIndices(story).map((_, i) => story.video.kenBurns && transitions[i - 1] !== 'slide' && transitions[i] !== 'slide');
+  return { transitions, kenBurnsPages };
 }
 
 /** Frames of the pages for a video, reusing the ones rendered before for a page that has not changed since. */
@@ -134,12 +130,14 @@ async function renderFrames(story: Story, width: number, signal: AbortSignal | u
 
 /** Everything about the video except its frames: timing, transitions, Ken Burns, music. */
 export function videoPlan(story: Story, o: Pick<VideoOptions, 'pageSeconds' | 'fitToMusicSeconds' | 'beatSync'>): VideoPlan {
-  const durations = o.beatSync
-    ? beatDurations(visibleIndices(story).length, o.beatSync.analysis, o.beatSync.beatsPerPage)
-    : videoDurations(story, o.pageSeconds, o.fitToMusicSeconds);
   const v = story.video;
-  const { transitions, kenBurnsPages } = videoTransitions(story, !!o.beatSync);
+  const beatSync = o.beatSync;
+  // The timeline engine decides all timing (page durations, manual lengths, beats, fit to music); the Timeline panel asks it with the same options.
+  const tl = computeTimeline(story, timelineOptions(story, { pageSeconds: o.pageSeconds, beatSync, fitToMusicSeconds: o.fitToMusicSeconds }));
+  const durations = tl.clips.map((c) => c.duration);
+  const { transitions, kenBurnsPages } = transitionPlan(story, tl.boundaries.map((b) => b.transition));
   const perBoundary = boundaryTransitionSeconds(durations, v.transitionSeconds);
+  const audioStart = v.audioPath && v.timeline ? v.timeline.audioOffset : 0;
   return {
     durations,
     transition: v.transition,
@@ -148,9 +146,10 @@ export function videoPlan(story: Story, o: Pick<VideoOptions, 'pageSeconds' | 'f
     transitionDurations: perBoundary,
     kenBurns: v.kenBurns,
     kenBurnsPages,
-    fps: 30,
+    fps: TIMELINE_FPS,
     ...(v.audioPath ? { audioPath: v.audioPath } : {}),
-    ...(o.beatSync ? { beatSync: true, audioLoopSeconds: beatLoopSeconds(o.beatSync.analysis, o.beatSync.beatsPerPage) } : {}),
+    ...(audioStart > 0 ? { audioStartSeconds: audioStart } : {}),
+    ...(beatSync ? { beatSync: true, audioLoopSeconds: beatLoopSeconds(beatSync.analysis, beatSync.beatsPerPage) } : {}),
   };
 }
 
@@ -174,10 +173,13 @@ export async function exportVideo(story: Story, o: VideoOptions): Promise<{ path
   return { path: await api.makeVideo({ ...plan, output: '', suggestedName, frames, ...(lookup.key ? { cacheKey: lookup.key } : {}) }), cached: false };
 }
 
+/** file:// URL of a local path, for an <audio> element. */
+export const fileUrl = (path: string): string => encodeURI(`file://${path.startsWith('/') ? '' : '/'}${path.replace(/\\/g, '/')}`).replace(/#/g, '%23').replace(/\?/g, '%3F');
+
 /** Duration of an audio file in seconds, or null when it cannot be read. */
 export function audioDuration(path: string): Promise<number | null> {
   return new Promise((resolve) => {
-    const url = encodeURI(`file://${path.startsWith('/') ? '' : '/'}${path.replace(/\\/g, '/')}`).replace(/#/g, '%23').replace(/\?/g, '%3F');
+    const url = fileUrl(path);
     const audio = new Audio();
     const done = (v: number | null) => {
       window.clearTimeout(timer);

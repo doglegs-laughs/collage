@@ -32,6 +32,24 @@ function fft(real, imag) {
   }
 }
 
+/**
+ * Loudness envelope for drawing the waveform: the largest |sample| in each of `buckets` equal slices, scaled so the loudest is 1.
+ * About 50 buckets per second (200 to 12000); silence gives all zeros. Self-contained: it also runs inside the analysis worker.
+ */
+function computePeaks(samples, buckets) {
+  const n = buckets || Math.min(12000, Math.max(200, Math.round(samples.length / 11025 * 50)));
+  const peaks = new Array(n).fill(0);
+  let top = 0;
+  for (let b = 0; b < n; b++) {
+    const from = Math.floor(b * samples.length / n), to = Math.max(from + 1, Math.floor((b + 1) * samples.length / n));
+    let m = 0;
+    for (let i = from; i < to && i < samples.length; i++) { const v = Math.abs(samples[i]); if (v > m) m = v; }
+    peaks[b] = m;
+    if (m > top) top = m;
+  }
+  return top > 0 ? peaks.map((v) => Math.round(v / top * 1000) / 1000) : peaks;
+}
+
 /** Detect percussive onsets, estimate tempo, then follow actual beats as tempo drifts. */
 function detectBeats(samples, sampleRate = SAMPLE_RATE) {
   const duration = samples.length / sampleRate;
@@ -136,7 +154,19 @@ function detectBeats(samples, sampleRate = SAMPLE_RATE) {
   };
   const beats = [...follow(-1).reverse(), anchor, ...follow(1)];
   if (beats.length < 4) throw new Error('Not enough clear beats found. Try another track or turn off beat sync.');
-  return { beats, duration, bpm: Math.round(60 / period) };
+  return { beats, duration, bpm: Math.round(60 / period), peaks: computePeaks(samples) };
+}
+
+/**
+ * Like `detectBeats`, but a track without clear beats is not an error: it comes back with `beats: []`, `noBeats: true`, the reason,
+ * its duration and its waveform, so the timeline can still draw it and let the user choose where the music starts.
+ */
+function analyzeSamples(samples, sampleRate = SAMPLE_RATE) {
+  try {
+    return detectBeats(samples, sampleRate);
+  } catch (e) {
+    return { beats: [], duration: samples.length / sampleRate, bpm: 0, peaks: computePeaks(samples), noBeats: true, reason: e instanceof Error ? e.message : 'No clear beats found.' };
+  }
 }
 
 /**
@@ -148,8 +178,10 @@ function workerSource() {
     "const { parentPort, workerData } = require('node:worker_threads');",
     `const SAMPLE_RATE = ${SAMPLE_RATE}, FFT_SIZE = ${FFT_SIZE}, HOP = ${HOP};`,
     fft.toString(),
+    computePeaks.toString(),
     detectBeats.toString(),
-    'parentPort.postMessage(detectBeats(new Float32Array(workerData.samples)));',
+    analyzeSamples.toString(),
+    'parentPort.postMessage(analyzeSamples(new Float32Array(workerData.samples)));',
   ].join('\n');
 }
 
@@ -188,7 +220,7 @@ function decodeAndAnalyze(file) {
  * Results are cached by path, mtime and size, identical requests share one run, and asking for a
  * different track stops any analysis still running for an earlier one.
  */
-async function analyzeAudio(file) {
+async function analyzeSoft(file) {
   if (typeof file !== 'string' || !file) throw new Error('Choose a music file first.');
   latestFile = file;
   const stat = await fs.stat(file).catch(() => null);
@@ -215,4 +247,14 @@ async function analyzeAudio(file) {
   return result;
 }
 
-module.exports = { detectBeats, analyzeAudio, workerSource };
+/**
+ * `analyzeSoft` for callers that need beats: a track with none rejects with the usual message.
+ * With `soft`, it resolves with `noBeats: true`, the duration and the waveform instead.
+ */
+async function analyzeAudio(file, soft = false) {
+  const analysis = await analyzeSoft(file);
+  if (analysis.noBeats && !soft) throw new Error(analysis.reason);
+  return analysis;
+}
+
+module.exports = { detectBeats, analyzeSamples, computePeaks, analyzeAudio, workerSource };

@@ -3,6 +3,7 @@ import { api, type BeatAnalysis } from '../api';
 import { useToast } from '../ui/Toast';
 import { audioDuration, exportImages, exportVideo, isAbort } from './exportStory';
 import { visibleIndices, type Story } from './model';
+import { fitToMusicApplies } from './timeline';
 
 export type ExportJob = { kind: 'images' | 'video'; label: string; fraction: number | null; /** Date.now() when the export began, for the elapsed-time readout. */ startedAt: number };
 export type ExportDone = { message: string; reveal: string };
@@ -68,8 +69,9 @@ export function useExporter(getStory: () => Story) {
       setJob({ kind: 'video', label: 'Preparing', fraction: null, startedAt });
       let music: number | null = null;
       if (req.beatSync && req.beatSync.audioPath !== story.video.audioPath) throw new Error('The music changed. Open video export and analyze it again.');
-      if (!req.beatSync && req.fitToMusic && story.video.audioPath) {
-        music = await audioDuration(story.video.audioPath);
+      const musicPath = story.video.audioPath;
+      if (musicPath && fitToMusicApplies(story.video, !!req.beatSync)) {
+        music = await audioDuration(musicPath);
         if (music === null) toast('Could not read the music length, so pages keep their own durations.', 'info');
       }
       off = api.onVideoProgress((f) => {
