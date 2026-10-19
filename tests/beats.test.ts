@@ -10,9 +10,10 @@ import { clicks, RATE, wav } from './helpers/wav';
 import { deserializeStory, emptyStory, serializeStory } from '../src/story/model';
 
 const require = createRequire(import.meta.url);
-const { detectBeats, analyzeAudio } = require('../electron/beats.cjs') as {
+const { detectBeats, analyzeAudio, analyzeSamples } = require('../electron/beats.cjs') as {
   detectBeats(samples: Float32Array, sampleRate?: number): BeatAnalysis;
-  analyzeAudio(file: string): Promise<BeatAnalysis>;
+  analyzeSamples(samples: Float32Array, sampleRate?: number): BeatAnalysis;
+  analyzeAudio(file: string, soft?: boolean): Promise<BeatAnalysis>;
 };
 describe('local beat detection', () => {
   it.each([60, 75, 90, 110, 120, 150, 180, 195])('finds a %i BPM rhythm and its actual onset times', (bpm) => {
@@ -212,5 +213,28 @@ describe('beat-based photo timing', () => {
     expect(deserializeStory(JSON.stringify(legacy)).video).toMatchObject({ syncToBeats: false, beatsPerPage: 4 });
     legacy.video.beatsPerPage = 3;
     expect(deserializeStory(JSON.stringify(legacy)).video.beatsPerPage).toBe(4);
+  });
+
+  it('a track without clear beats keeps its waveform and duration: soft analysis returns them, strict analysis still rejects', async () => {
+    const quiet = new Float32Array(RATE * 5); // silence: no steady beat
+    expect(() => detectBeats(quiet)).toThrow(/beat/i);
+    const soft = analyzeSamples(quiet);
+    expect(soft).toMatchObject({ beats: [], noBeats: true, duration: 5, bpm: 0 });
+    expect(soft.peaks!.length).toBeGreaterThan(0);
+    expect(soft.reason).toMatch(/beat/i);
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'nobeats-'));
+    try {
+      const noise = new Float32Array(RATE * 5).map((_, i) => 0.3 * Math.sin(i / 40));
+      const file = path.join(dir, 'drone.wav');
+      await fs.writeFile(file, wav(noise));
+      await expect(analyzeAudio(file)).rejects.toThrow(/beat/i);
+      const result = await analyzeAudio(file, true);
+      expect(result.noBeats).toBe(true);
+      expect(result.beats).toEqual([]);
+      expect(result.duration).toBeCloseTo(5);
+      expect(Math.max(...result.peaks!)).toBe(1);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });

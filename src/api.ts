@@ -32,7 +32,11 @@ export interface VideoCacheLookup { key: string | null; hit: boolean }
 export interface SidecarPhoto { id: string; name: string; data: Uint8Array }
 
 /** `peaks`: loudness envelope for drawing the waveform, 0..1 per bucket across `duration` (absent in analyses made before it existed). */
-export interface BeatAnalysis { beats: number[]; duration: number; bpm: number; peaks?: number[] }
+export interface BeatAnalysis {
+  beats: number[]; duration: number; bpm: number; peaks?: number[];
+  /** Set (with `beats: []`) when the track decoded but no steady beat was found: it still has a duration and a waveform. `reason` says why. */
+  noBeats?: boolean; reason?: string;
+}
 
 export interface FileFilter { name: string; extensions: string[] }
 
@@ -41,7 +45,8 @@ export interface Api {
   pathForFile(file: File): string;
   openImages(): Promise<string[]>;
   openAudio(): Promise<string | null>;
-  analyzeAudio(path: string): Promise<BeatAnalysis>;
+  /** Rejects when no beats are found, unless `soft` is set: then such a track resolves with `noBeats: true`, its waveform and duration. */
+  analyzeAudio(path: string, soft?: boolean): Promise<BeatAnalysis>;
   readFile(path: string): Promise<Uint8Array>;
   saveFile(opts: { defaultName: string; filters: FileFilter[]; data: Uint8Array }): Promise<string | null>;
   chooseFolder(): Promise<string | null>;

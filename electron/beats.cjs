@@ -158,6 +158,18 @@ function detectBeats(samples, sampleRate = SAMPLE_RATE) {
 }
 
 /**
+ * Like `detectBeats`, but a track without clear beats is not an error: it comes back with `beats: []`, `noBeats: true`, the reason,
+ * its duration and its waveform, so the timeline can still draw it and let the user choose where the music starts.
+ */
+function analyzeSamples(samples, sampleRate = SAMPLE_RATE) {
+  try {
+    return detectBeats(samples, sampleRate);
+  } catch (e) {
+    return { beats: [], duration: samples.length / sampleRate, bpm: 0, peaks: computePeaks(samples), noBeats: true, reason: e instanceof Error ? e.message : 'No clear beats found.' };
+  }
+}
+
+/**
  * Source for the analysis worker. It is built from the functions above and run with `eval`, so the worker
  * never loads a file: `new Worker(__filename)` can fail inside app.asar in a packaged build.
  */
@@ -168,7 +180,8 @@ function workerSource() {
     fft.toString(),
     computePeaks.toString(),
     detectBeats.toString(),
-    'parentPort.postMessage(detectBeats(new Float32Array(workerData.samples)));',
+    analyzeSamples.toString(),
+    'parentPort.postMessage(analyzeSamples(new Float32Array(workerData.samples)));',
   ].join('\n');
 }
 
@@ -207,7 +220,7 @@ function decodeAndAnalyze(file) {
  * Results are cached by path, mtime and size, identical requests share one run, and asking for a
  * different track stops any analysis still running for an earlier one.
  */
-async function analyzeAudio(file) {
+async function analyzeSoft(file) {
   if (typeof file !== 'string' || !file) throw new Error('Choose a music file first.');
   latestFile = file;
   const stat = await fs.stat(file).catch(() => null);
@@ -234,4 +247,14 @@ async function analyzeAudio(file) {
   return result;
 }
 
-module.exports = { detectBeats, computePeaks, analyzeAudio, workerSource };
+/**
+ * `analyzeSoft` for callers that need beats: a track with none rejects with the usual message.
+ * With `soft`, it resolves with `noBeats: true`, the duration and the waveform instead.
+ */
+async function analyzeAudio(file, soft = false) {
+  const analysis = await analyzeSoft(file);
+  if (analysis.noBeats && !soft) throw new Error(analysis.reason);
+  return analysis;
+}
+
+module.exports = { detectBeats, analyzeSamples, computePeaks, analyzeAudio, workerSource };

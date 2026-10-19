@@ -34,6 +34,11 @@ export function beatGrid(analysis: BeatAnalysis, beatsPerPage: number): { beats:
   return { beats: filled, loopSeconds: Math.min(duration, beats[beats.length - 1] + interval) };
 }
 
+/** True when the analysis found a usable beat grid (a track with "no clear beats" still has a duration and a waveform). */
+export function hasBeats(analysis: BeatAnalysis | undefined): analysis is BeatAnalysis {
+  return !!analysis && !analysis.noBeats && analysis.beats.length >= 2;
+}
+
 export function assertBeatAnalysis(analysis: BeatAnalysis, beatsPerPage: number): void {
   const { beats, duration } = analysis;
   if (![1, 2, 4, 8].includes(beatsPerPage) || !Number.isFinite(duration) || !(duration > 0) || beats.length < 2 ||
