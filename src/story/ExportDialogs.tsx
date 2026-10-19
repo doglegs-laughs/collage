@@ -68,11 +68,14 @@ export function VideoDialog({ story, onVideo, onExport, onClose }: VideoProps) {
     if (!v.syncToBeats || !path) { setAnalysis(null); return; }
     let active = true;
     setAnalysis({ path });
-    api.analyzeAudio(path).then(
-      (result) => { if (active) setAnalysis({ path, result }); },
-      (e: unknown) => { if (active) setAnalysis({ path, error: e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Could not detect beats. Try another track.' }); },
-    );
-    return () => { active = false; };
+    // Debounced: quick toggling or re-picking must not start a decode each time (main also caches and cancels).
+    const timer = window.setTimeout(() => {
+      api.analyzeAudio(path).then(
+        (result) => { if (active) setAnalysis({ path, result }); },
+        (e: unknown) => { if (active) setAnalysis({ path, error: e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : 'Could not detect beats. Try another track.' }); },
+      );
+    }, 300);
+    return () => { active = false; window.clearTimeout(timer); };
   }, [v.syncToBeats, v.audioPath, retry]);
   const pick = async () => {
     try {

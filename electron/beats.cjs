@@ -1,6 +1,6 @@
 const { execFile } = require('node:child_process');
 const fs = require('node:fs/promises');
-const { Worker, isMainThread, parentPort, workerData } = require('node:worker_threads');
+const { Worker } = require('node:worker_threads');
 const { ffmpegPath } = require('./ffmpeg-path.cjs');
 
 const SAMPLE_RATE = 11025;
@@ -48,12 +48,14 @@ function detectBeats(samples, sampleRate = SAMPLE_RATE) {
     for (let bin = 2; bin < previous.length; bin++) {
       const magnitude = Math.log1p(10 * Math.hypot(real[bin], imag[bin]));
       // Bass onsets get more weight than high-frequency subdivisions such as hi-hats.
-      envelope[frame] += Math.max(0, magnitude - previous[bin]) / Math.sqrt(bin);
+      // Frame 0 has no earlier spectrum to compare with; comparing against zeros would report a fake onset at t=0.
+      if (frame > 0) envelope[frame] += Math.max(0, magnitude - previous[bin]) / Math.sqrt(bin);
       previous[bin] = magnitude;
     }
   }
   const maximum = envelope.reduce((a, b) => Math.max(a, b), 0);
-  if (maximum < 0.01) throw new Error('No clear beats found. Choose music with a stronger rhythm, or turn off beat sync.');
+  // Raw flux: a steady tone peaks near 0.06, a faint click track above 7. Normalising below would turn noise into "beats".
+  if (maximum < 0.5) throw new Error('No clear beats found. Choose music with a stronger rhythm, or turn off beat sync.');
   for (let i = 0; i < count; i++) envelope[i] /= maximum;
   const frameSeconds = HOP / sampleRate;
   const peaks = [];
@@ -137,23 +139,75 @@ function detectBeats(samples, sampleRate = SAMPLE_RATE) {
   return { beats, duration, bpm: Math.round(60 / period) };
 }
 
-/** Decode locally with the same bundled FFmpeg as video export; analyze off the main thread. */
+/**
+ * Source for the analysis worker. It is built from the functions above and run with `eval`, so the worker
+ * never loads a file: `new Worker(__filename)` can fail inside app.asar in a packaged build.
+ */
+function workerSource() {
+  return [
+    "const { parentPort, workerData } = require('node:worker_threads');",
+    `const SAMPLE_RATE = ${SAMPLE_RATE}, FFT_SIZE = ${FFT_SIZE}, HOP = ${HOP};`,
+    fft.toString(),
+    detectBeats.toString(),
+    'parentPort.postMessage(detectBeats(new Float32Array(workerData.samples)));',
+  ].join('\n');
+}
+
+const CACHE_SIZE = 4;
+const cache = new Map(); // key -> BeatAnalysis, least recently used first
+const inflight = new Map(); // key -> { promise, abort() }
+
+function abortError() {
+  const e = new Error('Music analysis cancelled');
+  e.name = 'AbortError';
+  return e;
+}
+
+function decodeAndAnalyze(file) {
+  const controller = new AbortController();
+  let worker = null;
+  const promise = new Promise((resolve, reject) => {
+    // `file:` stops FFmpeg reading a name such as "http:x.mp3" or "pipe:1" as a protocol.
+    execFile(ffmpegPath(), ['-v', 'error', '-nostdin', '-i', `file:${file}`, '-vn', '-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 'f32le', 'pipe:1'],
+      { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 60_000, signal: controller.signal }, (error, pcm) => {
+        if (controller.signal.aborted) { reject(abortError()); return; }
+        if (error) { reject(new Error('Could not analyze this music. Choose a playable audio file under 25 minutes.')); return; }
+        const samples = pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength);
+        worker = new Worker(workerSource(), { eval: true, workerData: { samples }, transferList: [samples] });
+        worker.once('message', resolve);
+        worker.once('error', (e) => reject(controller.signal.aborted ? abortError() : e));
+        worker.once('exit', (code) => { if (code !== 0) reject(controller.signal.aborted ? abortError() : new Error('Music analysis did not finish. Try another track.')); });
+      });
+  });
+  return { promise, abort() { controller.abort(); worker?.terminate(); } };
+}
+
+/**
+ * Decode locally with the same bundled FFmpeg as video export; analyze off the main thread.
+ * Results are cached by path, mtime and size, identical requests share one run, and asking for a
+ * different track stops any analysis still running for an earlier one.
+ */
 async function analyzeAudio(file) {
   if (typeof file !== 'string' || !file) throw new Error('Choose a music file first.');
   const stat = await fs.stat(file).catch(() => null);
   if (!stat?.isFile()) throw new Error('This music file is unavailable. Choose a local audio file again.');
-  return new Promise((resolve, reject) => {
-    execFile(ffmpegPath(), ['-v', 'error', '-nostdin', '-i', file, '-vn', '-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 'f32le', 'pipe:1'],
-      { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 60_000 }, (error, pcm) => {
-        if (error) { reject(new Error('Could not analyze this music. Choose a playable audio file under 25 minutes.')); return; }
-        const samples = pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength);
-        const worker = new Worker(__filename, { workerData: { type: 'collage-beat-analysis', samples }, transferList: [samples] });
-        worker.once('message', resolve);
-        worker.once('error', reject);
-        worker.once('exit', (code) => { if (code !== 0) reject(new Error('Music analysis did not finish. Try another track.')); });
-      });
+  const key = `${file}\0${stat.mtimeMs}\0${stat.size}`;
+  const hit = cache.get(key);
+  if (hit) { cache.delete(key); cache.set(key, hit); return hit; }
+  const running = inflight.get(key);
+  if (running) return running.promise;
+  for (const [otherKey, other] of inflight) if (otherKey !== key) other.abort();
+  const job = decodeAndAnalyze(file);
+  inflight.set(key, job);
+  const result = job.promise.then((analysis) => {
+    cache.set(key, analysis);
+    while (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value);
+    return analysis;
   });
+  const done = () => { if (inflight.get(key) === job) inflight.delete(key); };
+  result.then(done, done);
+  job.promise = result;
+  return result;
 }
 
-if (!isMainThread && workerData?.type === 'collage-beat-analysis') parentPort.postMessage(detectBeats(new Float32Array(workerData.samples)));
-module.exports = { detectBeats, analyzeAudio };
+module.exports = { detectBeats, analyzeAudio, workerSource };

@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { clicks, findFfprobe, RATE, wav } from '../helpers/wav';
 import { emptyPage, emptyStory, serializeStory } from '../../src/story/model';
 
 const require = createRequire(import.meta.url);
@@ -12,23 +13,13 @@ const ffmpeg = fs.existsSync('/usr/bin/ffmpeg') ? '/usr/bin/ffmpeg' : require('f
 const root = path.resolve(import.meta.dirname, '..', '..');
 
 function writeMusic(file: string, silent = false) {
-  const rate = 11025;
-  const samples = new Int16Array(rate * 8);
-  if (!silent) for (let t = 0.2; t < 8; t += 0.5) {
-    for (let i = 0; i < rate * 0.07; i++) {
-      samples[Math.floor(t * rate) + i] = Math.round(26000 * Math.sin(2 * Math.PI * 90 * i / rate) * Math.exp(-i / (rate * 0.015)));
-    }
-  }
-  const out = Buffer.alloc(44 + samples.byteLength);
-  out.write('RIFF'); out.writeUInt32LE(out.length - 8, 4); out.write('WAVEfmt ', 8);
-  out.writeUInt32LE(16, 16); out.writeUInt16LE(1, 20); out.writeUInt16LE(1, 22);
-  out.writeUInt32LE(rate, 24); out.writeUInt32LE(rate * 2, 28); out.writeUInt16LE(2, 32); out.writeUInt16LE(16, 34);
-  out.write('data', 36); out.writeUInt32LE(samples.byteLength, 40);
-  Buffer.from(samples.buffer).copy(out, 44);
-  fs.writeFileSync(file, out);
+  fs.writeFileSync(file, wav(silent ? new Float32Array(RATE * 8) : clicks(120, 8, 0.2)));
 }
 
+const ffprobe = findFfprobe();
+
 test('detects music beats, changes pace, and exports frame-aligned photo changes with music', async () => {
+  test.skip(!ffprobe, 'ffprobe was not found (looked at /usr/bin/ffprobe and on PATH); install FFmpeg to run this test.');
   test.setTimeout(120_000);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beat-e2e-'));
   const music = path.join(dir, 'beat track.wav');
@@ -69,7 +60,7 @@ test('detects music beats, changes pace, and exports frame-aligned photo changes
     await page.getByTestId('video-dialog').screenshot({ path: path.join(root, 'test-results', 'beat-sync-dialog.png') });
     await page.getByTestId('video-go').click();
     await expect(page.getByTestId('export-status')).toContainText('Video saved', { timeout: 60_000 });
-    const info = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_format', '-show_streams', '-of', 'json', output]).toString());
+    const info = JSON.parse(execFileSync(ffprobe!, ['-v', 'error', '-show_format', '-show_streams', '-of', 'json', output]).toString());
     expect(Number(info.format.duration)).toBeCloseTo(3.2, 1);
     expect(info.streams.some((s: { codec_name: string }) => s.codec_name === 'aac')).toBe(true);
     for (const [time, channel] of [[0.9, 0], [1.4, 1], [2.4, 2]]) {
