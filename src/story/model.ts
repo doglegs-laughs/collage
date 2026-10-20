@@ -426,7 +426,7 @@ const nonnegative = (v: unknown, what: string): number => {
 };
 const identifier = (v: unknown, what: string): string => {
   const id = str(v, what);
-  return id && !['__proto__', 'constructor', 'prototype'].includes(id) ? id : fail(`Invalid ${what}`);
+  return id && !Object.hasOwn(Object.prototype, id) && id !== 'prototype' ? id : fail(`Invalid ${what}`);
 };
 const uniqueIds = (items: { id: string }[], what: string) => {
   if (new Set(items.map((item) => item.id)).size !== items.length) fail(`Duplicate ${what} id`);

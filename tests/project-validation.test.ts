@@ -27,6 +27,7 @@ describe('untrusted project validation', () => {
     ['duplicate element', (s: any) => { s.pages[0].elements.push(s.pages[0].elements[0]); }],
     ['duplicate photo', (s: any) => { s.photos.push(s.photos[0]); }],
     ['reserved id', (s: any) => { s.pages[0].id = 'constructor'; }],
+    ['inherited dictionary key', (s: any) => { s.pages[0].id = 'toString'; }],
     ['fractional spread', (s: any) => { s.pages[0].spread = { index: 0.5, count: 2 }; }],
   ])('rejects invalid %s before it reaches the editor', (_label, change) => {
     const s = project(); change(s);

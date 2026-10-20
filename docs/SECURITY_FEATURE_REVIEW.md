@@ -30,6 +30,7 @@ The application has no server or account system. Its principal trust boundaries 
 ## Validation
 
 - Baseline: 1,782 unit tests passed and one macOS-only VideoToolbox test skipped; typecheck and production build passed.
+- Final: 1,816 unit tests passed, one macOS-only test skipped; 28 Electron end-to-end tests, typecheck, and production build passed. The approved npm audit reported zero vulnerabilities.
 - Updated unit, typecheck, production build, Electron end-to-end and npm advisory results are recorded in the PR description.
 - Electron scenarios cover launch/tab switching, import, image preview and undo, both Collage modes, Borders finishes, Story layouts/crops/titles/subtitles, hiding and page management, image/video export, autosave/recovery, recent projects, beat sync, timeline edits and cache reuse, plus the new security/data-loss regressions.
 
