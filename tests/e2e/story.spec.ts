@@ -630,6 +630,10 @@ test('add a title page or put the title on a page after making a story without o
   expect(await stripCount()).toBe(n);
   await expect(stageText.first()).toContainText(/midsummer/i);
   await expect(story().getByTestId('selection-box')).toHaveCount(1);
+
+  await story().getByLabel('Story subtitle').fill('June 2025');
+  await expect(stageText).toHaveCount(2);
+  await expect(stageText.nth(1)).toContainText(/june 2025/i);
 });
 
 async function makeEditedStory(project: string) {

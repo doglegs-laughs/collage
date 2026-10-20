@@ -33,6 +33,18 @@ describe('roles', () => {
     s = setRoleText(s, 'subtitle', 'July');
     expect(texts(s).find((t) => t.role === 'subtitle')!.text).toBe('July');
   });
+  it('typing a subtitle after the story is made adds it under the title', () => {
+    let s = storyOf('Faroes');
+    expect(texts(s).some((t) => t.role === 'subtitle')).toBe(false);
+    s = setRoleText(s, 'subtitle', 'June 2025');
+    const title = texts(s).find((t) => t.role === 'title')!;
+    const sub = texts(s).find((t) => t.role === 'subtitle')!;
+    expect(sub.text).toBe('June 2025');
+    expect(sub.y).toBeGreaterThan(title.y + title.h);
+    expect(sub.color).toBe(title.color);
+    expect(setRoleText(s, 'subtitle', 'July')).not.toBe(s);
+    expect(texts(setRoleText(s, 'subtitle', 'July')).filter((t) => t.role === 'subtitle')).toHaveLength(1);
+  });
 });
 
 describe('migration', () => {

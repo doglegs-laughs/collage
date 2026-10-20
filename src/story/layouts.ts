@@ -61,7 +61,7 @@ function contextOf(story: Story, pageIndex: number): Context | null {
   const pages = story.pages.slice(start, end);
   const slots = pages.flatMap((p) => p.elements.filter((e): e is PhotoEl => e.kind === 'photo'));
   const owned = ownedTexts(pages);
-  return { start, end, pages, slots, title: owned[0]?.text || story.title.trim() || undefined, subtitle: owned[1]?.text || undefined };
+  return { start, end, pages, slots, title: owned[0]?.text || story.title.trim() || undefined, subtitle: owned[1]?.text || story.subtitle?.trim() || undefined };
 }
 
 const photoOf = (story: Story, id: string | null): Photo | undefined => (id ? story.photos.find((p) => p.id === id) : undefined);
