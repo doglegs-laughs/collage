@@ -2,7 +2,7 @@
 //   npm run build
 //   xvfb-run -a node scripts/screenshots.mjs <photos-folder> [out-folder]
 // <photos-folder> holds ~14 JPEGs (landscape, portrait, one ~3:1 panorama). Default out-folder: docs/screenshots.
-// Writes story-*.jpg, layout-picker.jpg, photo-preview.jpg, collage-*.jpg, borders.jpg and icon.png.
+// Writes story-*.jpg, timeline.jpg, layout-picker.jpg, photo-preview.jpg, collage-*.jpg, borders.jpg and icon.png.
 // Set SHOTS_DEBUG=<dir> to also dump every Story page of both styles for inspection.
 import { _electron as electron } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
@@ -117,6 +117,31 @@ await shot('story-clean.png');
 await gotoPage(/^Panorama spread/);
 await deselect();
 await shot('story-spread.png');
+
+// ---- Story: timeline ----------------------------------------------------------
+// A 60 s, 120 BPM kick/hat/pad track so the waveform and beat marks read clearly.
+const music = path.join(userData, 'music.wav');
+execFileSync(ffmpeg, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i',
+  "aevalsrc='0.8*sin(2*PI*55*t)*exp(-14*mod(t,0.5))+0.25*sin(2*PI*7000*t)*exp(-60*mod(t+0.25,0.5))+0.12*sin(2*PI*220*t)*(0.6+0.4*sin(2*PI*t/8))':s=44100:d=60", music]);
+await app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); }, music);
+await clickStrip(0);
+await deselect();
+await story.getByTestId('story-timeline').click();
+const tl = page.getByTestId('timeline-panel');
+await tl.getByTestId('tl-music').click();
+await tl.getByTestId('tl-analyze').click();
+await tl.getByTestId('tl-status').filter({ hasText: 'BPM' }).waitFor({ timeout: 60_000 });
+await tl.getByTestId('tl-scroll').evaluate((el) => { el.scrollLeft = 0; });
+// Stretch the second page by about two beats so a locked clip shows.
+const edge = await tl.getByTestId('tl-clip').nth(1).getByTestId('tl-edge').boundingBox();
+await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+await page.mouse.down();
+await page.mouse.move(edge.x + edge.width / 2 + 60, edge.y + edge.height / 2, { steps: 8 });
+await page.mouse.up();
+await settle();
+await shot('timeline.png');
+await story.getByTestId('story-timeline').click();
+await story.getByTestId('page-strip').waitFor();
 
 // Stylized: switch style in the inspector (confirms the re-create).
 await page.getByRole('button', { name: 'Stylized', exact: true }).click();

@@ -1,5 +1,5 @@
 import { breakLines } from './templates';
-import { addPage, makeRng, type El, type FontKey, type PhotoEl, type Story, type TextEl } from './model';
+import { addPage, defaultTextEl, makeRng, type El, type FontKey, type PhotoEl, type Story, type TextEl } from './model';
 import { snapWeight } from './fonts';
 import { buildPages } from './autofill';
 import { getTemplate, titleElements } from './templates';
@@ -51,6 +51,26 @@ export function setRoleText(story: Story, role: 'title' | 'subtitle', text: stri
     if (!p.elements.some((e) => e.kind === 'text' && e.role === role && e.text !== text)) return p;
     changed = true;
     return { ...p, elements: p.elements.map((e) => (e.kind === 'text' && e.role === role ? ({ ...e, text: rewrap(e.text, text) } as TextEl) : e)) };
+  });
+  const next = changed ? { ...story, pages } : story;
+  return role === 'subtitle' && text.trim() && !hasRoleEl(next, 'subtitle') ? addSubtitleEls(next, text) : next;
+}
+
+const hasRoleEl = (story: Story, role: 'title' | 'subtitle') => story.pages.some((p) => p.elements.some((e) => e.kind === 'text' && e.role === role));
+
+/** Put a subtitle under every title element, styled like the cover templates' subtitle (sizes are fractions of page height). */
+function addSubtitleEls(story: Story, text: string): Story {
+  let changed = false;
+  const pages = story.pages.map((p) => {
+    const titles = p.elements.filter((e): e is TextEl => e.kind === 'text' && e.role === 'title');
+    if (!titles.length) return p;
+    changed = true;
+    const top = p.elements.reduce((m, e) => Math.max(m, e.z), -1);
+    const subs = titles.map((t, i): TextEl => {
+      const font: FontKey = t.font === 'montserrat' ? 'montserrat' : 'josefin';
+      return defaultTextEl({ x: t.x, y: t.y + t.h + 0.011, w: t.w, h: 0.031, z: top + 1 + i, rotation: t.rotation, text, role: 'subtitle', font, size: 0.022, weight: snapWeight(font, 300), color: t.color, align: t.align, letterSpacing: 0.3, uppercase: true, shadow: t.shadow });
+    });
+    return { ...p, elements: [...p.elements, ...subs] };
   });
   return changed ? { ...story, pages } : story;
 }
