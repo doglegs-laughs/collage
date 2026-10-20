@@ -76,3 +76,33 @@ it('abandons a hung write after the timeout and keeps writing', async () => {
     vi.useRealTimers();
   }
 });
+
+it('does not send a stale IPC write after a timed-out photo read resumes', async () => {
+  let release!: (bytes: ArrayBuffer) => void;
+  const file = new File(['photo'], 'photo.jpg');
+  vi.spyOn(file, 'arrayBuffer').mockReturnValueOnce(new Promise((r) => { release = r; }));
+  const autosaveWrite = vi.fn().mockResolvedValue(true);
+  vi.stubGlobal('window', { api: { autosaveWrite } });
+  let story = { ...emptyStory(), title: 'stale', pages: [emptyPage()], photos: [{ id: 'a', name: 'photo.jpg', width: 1, height: 1, file }] };
+  const write = createAutosaveWriter(() => ({ story, thumb: null }), 50);
+  expect(await write()).toBe(false);
+  story = { ...story, title: 'latest' };
+  expect(await write()).toBe(true);
+  release(new ArrayBuffer(3));
+  await new Promise((r) => setImmediate(r));
+  expect(autosaveWrite.mock.calls.map(([json]) => JSON.parse(json).title)).toEqual(['latest']);
+});
+
+it('preserves startup recovery, then saves the deletion of the last page', async () => {
+  const autosaveWrite = vi.fn().mockResolvedValue(true);
+  vi.stubGlobal('window', { api: { autosaveWrite } });
+  let story = emptyStory();
+  const write = createAutosaveWriter(() => ({ story, thumb: null }));
+  expect(await write()).toBe(true);
+  expect(autosaveWrite).not.toHaveBeenCalled();
+  story = { ...story, pages: [emptyPage()] };
+  await write();
+  story = { ...story, pages: [] };
+  await write();
+  expect(autosaveWrite.mock.calls.map(([json]) => JSON.parse(json).pages.length)).toEqual([1, 0]);
+});

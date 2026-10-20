@@ -201,7 +201,7 @@ function decodeAndAnalyze(file) {
   let worker = null;
   const promise = new Promise((resolve, reject) => {
     // `file:` stops FFmpeg reading a name such as "http:x.mp3" or "pipe:1" as a protocol.
-    execFile(ffmpegPath(), ['-v', 'error', '-nostdin', '-i', `file:${file}`, '-vn', '-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 'f32le', 'pipe:1'],
+    execFile(ffmpegPath(), ['-v', 'error', '-nostdin', '-protocol_whitelist', 'file,pipe', '-i', `file:${file}`, '-vn', '-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 'f32le', 'pipe:1'],
       { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 60_000, signal: controller.signal }, (error, pcm) => {
         if (controller.signal.aborted) { reject(abortError()); return; }
         if (error) { reject(new Error('Could not analyze this music. Choose a playable audio file under 25 minutes.')); return; }

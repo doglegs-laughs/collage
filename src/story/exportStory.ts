@@ -155,11 +155,13 @@ export function videoPlan(story: Story, o: Pick<VideoOptions, 'pageSeconds' | 'f
 
 /** Resolves to where the video was saved ('' when the user cancelled) and whether an earlier identical video was reused. */
 export async function exportVideo(story: Story, o: VideoOptions): Promise<{ path: string; cached: boolean }> {
+  check(o.signal);
   const { width } = evenPageSize(story.aspect, o.width);
   const plan = videoPlan(story, o);
   const suggestedName = `${storyBaseName(story)}.mp4`;
   let lookup: { key: string | null; hit: boolean } = { key: null, hit: false };
   try { lookup = await api.videoCacheLookup(videoCacheSpec(story, width, plan)); } catch { /* the cache is optional */ }
+  check(o.signal);
   if (lookup.key && lookup.hit) {
     o.onCached?.();
     try {

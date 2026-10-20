@@ -4,6 +4,9 @@
   "description": "Collage, story and border maker for photos",
   "private": true,
   "type": "module",
+  "overrides": {
+    "global-agent": "^4.1.3"
+  },
   "main": "electron/main.cjs",
   "author": "Collage",
   "scripts": {

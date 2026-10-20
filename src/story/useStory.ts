@@ -20,7 +20,7 @@ export type StoryState = {
   setSubtitle: (subtitle: string) => void;
   /** Load a whole story (project open); clears history. */
   load: (story: Story) => void;
-  /** True when the story differs from the last saved / opened / freshly generated one (undoing back to it clears this). */
+  /** True when the story differs from the last saved / opened one (undoing back to it clears this). */
   dirty: boolean;
   /** Treat `story` (the snapshot that was just written to disk) as the clean state. */
   markSaved: (story: Story) => void;
@@ -54,8 +54,6 @@ export function useStory(): StoryState {
     if (!subtitleText) delete next.subtitle;
     const normalized = normalizeTimeline(next); // a regenerated story has new page ids
     set(normalized);
-    // Laying out a story from nothing is not unsaved work yet; anything after it is.
-    if (!s.pages.length) setBaseline(normalized);
     return pages.length;
   }, [set]);
 

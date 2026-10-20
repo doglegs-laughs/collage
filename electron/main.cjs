@@ -6,9 +6,11 @@ const video = require('./video.cjs');
 const store = require('./store.cjs');
 const { analyzeAudio } = require('./beats.cjs');
 const { createVideoCache, computeKey } = require('./video-cache.cjs');
+const { rendererUrl, sameDocument, trustedSender } = require('./security.cjs');
 
 const isMac = process.platform === 'darwin';
-const devUrl = process.env.VITE_DEV_SERVER_URL;
+const devUrl = !app.isPackaged && process.env.VITE_DEV_SERVER_URL;
+const appUrl = rendererUrl(path.join(__dirname, '..', 'dist', 'renderer', 'index.html'), devUrl);
 // TIFF is converted with sips, so it is only offered on macOS (HEIC stays listed to give a clear message elsewhere).
 const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif', 'heic', 'heif', ...(isMac ? ['tif', 'tiff'] : [])];
 const AUDIO_EXT = ['mp3', 'm4a', 'aac', 'wav', 'aiff', 'flac', 'ogg'];
@@ -33,8 +35,12 @@ function requestFlush() {
   if (!wc) return Promise.resolve(false);
   return new Promise((resolve) => {
     const timer = setTimeout(() => { ipcMain.removeListener('autosave:flushed', done); resolve(false); }, 5000);
-    const done = (_e, ok) => { clearTimeout(timer); resolve(ok === true); };
-    ipcMain.once('autosave:flushed', done);
+    const done = (event, ok) => {
+      if (!trustedSender(event, mainWindow, appUrl)) return;
+      ipcMain.removeListener('autosave:flushed', done);
+      clearTimeout(timer); resolve(ok === true);
+    };
+    ipcMain.on('autosave:flushed', done);
     wc.send('autosave:flush');
   });
 }
@@ -100,8 +106,14 @@ function createWindow() {
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (!devUrl || !url.startsWith(devUrl)) event.preventDefault();
+    if (!sameDocument(url, appUrl)) event.preventDefault();
   });
+  mainWindow.webContents.on('will-redirect', (event, url) => {
+    if (!sameDocument(url, appUrl)) event.preventDefault();
+  });
+  mainWindow.webContents.on('will-attach-webview', (event) => event.preventDefault());
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  mainWindow.webContents.session.setPermissionCheckHandler(() => false);
   if (devUrl) mainWindow.loadURL(devUrl);
   else mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'renderer', 'index.html'));
 }
@@ -183,31 +195,39 @@ const win = () => BrowserWindow.getFocusedWindow() ?? mainWindow ?? undefined;
 const filterFor = (name, extensions) => [{ name, extensions }];
 
 function registerIpc() {
-  ipcMain.handle('dialog:openImages', async () => {
+  // Every capability is restricted to our own top-level document, including fire-and-forget messages.
+  const handle = (channel, listener) => ipcMain.handle(channel, (event, ...args) => {
+    if (!trustedSender(event, mainWindow, appUrl)) throw new Error('Untrusted IPC sender');
+    return listener(event, ...args);
+  });
+  const on = (channel, listener) => ipcMain.on(channel, (event, ...args) => {
+    if (trustedSender(event, mainWindow, appUrl)) listener(event, ...args);
+  });
+  handle('dialog:openImages', async () => {
     const r = await dialog.showOpenDialog(win(), { properties: ['openFile', 'multiSelections'], filters: filterFor('Images', IMAGE_EXT) });
     return r.canceled ? [] : r.filePaths;
   });
-  ipcMain.handle('dialog:openAudio', async () => {
+  handle('dialog:openAudio', async () => {
     const r = await dialog.showOpenDialog(win(), { properties: ['openFile'], filters: filterFor('Audio', AUDIO_EXT) });
     return r.canceled ? null : r.filePaths[0];
   });
-  ipcMain.handle('audio:analyze', (_e, file, soft) => analyzeAudio(file, soft === true));
-  ipcMain.handle('dialog:chooseFolder', async () => {
+  handle('audio:analyze', (_e, file, soft) => analyzeAudio(file, soft === true));
+  handle('dialog:chooseFolder', async () => {
     const r = await dialog.showOpenDialog(win(), { properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];
   });
-  ipcMain.handle('file:read', async (_e, file) => new Uint8Array(await readImage(String(file))));
-  ipcMain.handle('file:save', async (_e, opts) => {
+  handle('file:read', async (_e, file) => new Uint8Array(await readImage(String(file))));
+  handle('file:save', async (_e, opts) => {
     const r = await dialog.showSaveDialog(win(), { defaultPath: opts.defaultName, filters: opts.filters });
     if (r.canceled || !r.filePath) return null;
     await atomicWrite(r.filePath, opts.data);
     return r.filePath;
   });
-  ipcMain.handle('file:write', (_e, file, data, options) => atomicWrite(String(file), data, { overwrite: options?.overwrite === true }));
-  ipcMain.handle('file:exists', (_e, file) => exists(String(file)));
-  ipcMain.on('file:reveal', (_e, file) => shell.showItemInFolder(String(file)));
+  handle('file:write', (_e, file, data, options) => atomicWrite(String(file), data, { overwrite: options?.overwrite === true }));
+  handle('file:exists', (_e, file) => exists(String(file)));
+  on('file:reveal', (_e, file) => shell.showItemInFolder(String(file)));
 
-  ipcMain.handle('project:save', async (_e, json, suggestedName, sidecar) => {
+  handle('project:save', async (_e, json, suggestedName, sidecar) => {
     const r = await dialog.showSaveDialog(win(), { defaultPath: suggestedName, filters: filterFor('Collage project', ['collage', 'json']) });
     if (r.canceled || !r.filePath) return null;
     let text = String(json);
@@ -216,16 +236,16 @@ function registerIpc() {
     await refreshRecents(r.filePath);
     return r.filePath;
   });
-  ipcMain.handle('project:open', async () => {
+  handle('project:open', async () => {
     const r = await dialog.showOpenDialog(win(), { properties: ['openFile'], filters: filterFor('Collage project', ['collage', 'json']) });
     if (r.canceled) return null;
     const json = await fs.readFile(r.filePaths[0], 'utf8');
     await refreshRecents(r.filePaths[0]);
     return { path: r.filePaths[0], json };
   });
-  ipcMain.handle('recent:list', () => store.describeRecents(app.getPath('userData')));
-  ipcMain.handle('recent:remove', async (_e, file) => { await refreshRecents(null, String(file)); });
-  ipcMain.handle('recent:open', async (_e, file) => {
+  handle('recent:list', () => store.describeRecents(app.getPath('userData')));
+  handle('recent:remove', async (_e, file) => { await refreshRecents(null, String(file)); });
+  handle('recent:open', async (_e, file) => {
     const f = String(file);
     try {
       const json = await fs.readFile(f, 'utf8');
@@ -237,7 +257,7 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('autosave:write', async (_e, json, sidecar, meta) => {
+  handle('autosave:write', async (_e, json, sidecar, meta) => {
     try {
       await autosave.write(json, sidecar, meta);
       return true;
@@ -246,42 +266,54 @@ function registerIpc() {
       return false;
     }
   });
-  ipcMain.handle('autosave:read', () => autosave.read());
-  ipcMain.handle('autosave:clear', () => autosave.clear());
+  handle('autosave:read', () => autosave.read());
+  handle('autosave:clear', () => autosave.clear());
 
   let videoCache = null;
+  let videoRequest = null;
   const getVideoCache = () => (videoCache ??= createVideoCache(path.join(app.getPath('userData'), 'video-cache')));
 
   // { key, hit }: key is null when the job cannot be cached.
-  ipcMain.handle('video:cache-lookup', async (_event, spec) => {
+  handle('video:cache-lookup', async (_event, spec) => {
     const key = await computeKey(spec, await video.pickEncoder());
     return { key, hit: key ? !!(await getVideoCache().find(key)) : false };
   });
 
   // Returns the output path, or '' when the user cancels the save dialog.
-  ipcMain.handle('video:make', async (event, job) => {
-    const cacheKey = typeof job.cacheKey === 'string' ? job.cacheKey : null;
-    const cached = cacheKey ? await getVideoCache().find(cacheKey) : null;
-    if (cacheKey && !cached && !(Array.isArray(job.frames) && job.frames.length)) throw new Error('VIDEO_CACHE_MISS');
-    let output = job.output;
-    if (!output) {
-      const r = await dialog.showSaveDialog(win(), { defaultPath: typeof job.suggestedName === 'string' && job.suggestedName ? path.basename(job.suggestedName) : 'story.mp4', filters: filterFor('MP4 video', ['mp4']) });
-      if (r.canceled || !r.filePath) return '';
-      output = r.filePath;
+  handle('video:make', async (event, job) => {
+    if (videoRequest) throw new Error('A video export is already running');
+    const request = new AbortController();
+    videoRequest = request;
+    try {
+      const cacheKey = typeof job.cacheKey === 'string' ? job.cacheKey : null;
+      const cached = cacheKey ? await getVideoCache().find(cacheKey) : null;
+      if (cacheKey && !cached && !(Array.isArray(job.frames) && job.frames.length)) throw new Error('VIDEO_CACHE_MISS');
+      let output = job.output;
+      if (!output) {
+        const r = await dialog.showSaveDialog(win(), { defaultPath: typeof job.suggestedName === 'string' && job.suggestedName ? path.basename(job.suggestedName) : 'story.mp4', filters: filterFor('MP4 video', ['mp4']) });
+        if (r.canceled || !r.filePath) return '';
+        output = r.filePath;
+      }
+      request.signal.throwIfAborted();
+      if (cached) {
+        await getVideoCache().copyTo(cached, output, { signal: request.signal });
+        return output;
+      }
+      const sender = event.sender;
+      const made = await video.makeVideo({ ...job, output }, (fraction) => {
+        if (!sender.isDestroyed()) sender.send('video:progress', fraction);
+      });
+      if (cacheKey) await getVideoCache().store(cacheKey, made).catch(() => {});
+      return made;
+    } finally {
+      if (videoRequest === request) videoRequest = null;
     }
-    if (cached) {
-      await getVideoCache().copyTo(cached, output);
-      return output;
-    }
-    const sender = event.sender;
-    const made = await video.makeVideo({ ...job, output }, (fraction) => {
-      if (!sender.isDestroyed()) sender.send('video:progress', fraction);
-    });
-    if (cacheKey) await getVideoCache().store(cacheKey, made).catch(() => {});
-    return made;
   });
-  ipcMain.handle('video:cancel', () => video.cancel());
-  ipcMain.on('app:set-dirty', (_e, value) => { dirty = value === true; if (!dirty) discardConfirmed = false; });
+  handle('video:cancel', () => {
+    videoRequest?.abort(new Error('Video export cancelled'));
+    return video.cancel();
+  });
+  on('app:set-dirty', (_e, value) => { dirty = value === true; if (!dirty) discardConfirmed = false; });
 }
 
 app.whenReady().then(() => {

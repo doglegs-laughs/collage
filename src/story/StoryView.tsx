@@ -231,7 +231,7 @@ export function StoryView() {
             />
             {timelineOpen ? (
               <TimelinePanel story={story} mutate={st.mutate} pageIndex={pageIndex} thumbs={thumbs} onSelectPage={ed.goTo} onClose={() => setTimelineOpen(false)} />
-            ) : <PageStrip elementSelected={selection.length > 0} story={story} pageIndex={pageIndex} thumbs={thumbs} onSelect={ed.goTo} onMove={ed.pageMove} onToggleHidden={ed.toggleHidden} onMenu={(i, x, y) => setPageMenu({ i, x, y })} onAdd={ed.pageAdd} onDuplicate={ed.pageDuplicate} onDelete={ed.pageDelete} />}
+            ) : <PageStrip elementSelected={selection.length > 0} story={story} pageIndex={pageIndex} thumbs={thumbs} onSelect={ed.goTo} onMove={ed.pageMove} onToggleHidden={ed.toggleHidden} onMenu={(i, x, y) => setPageMenu({ i, x, y })} onAdd={ed.pageAdd} onDuplicate={() => ed.pageDuplicate()} onDelete={() => ed.pageDelete()} />}
           </div>
           <aside className="sidebar story-insp" data-testid="story-inspector">
             <StoryInspector
@@ -265,8 +265,8 @@ export function StoryView() {
           x={pageMenu.x} y={pageMenu.y} label="Page actions" onClose={closePageMenu}
           items={[
             { label: story.pages[pageMenu.i].hidden ? 'Show page' : 'Hide page', onSelect: () => ed.toggleHidden(pageMenu.i) },
-            { label: 'Duplicate page', onSelect: () => { ed.goTo(pageMenu.i); ed.pageDuplicate(); } },
-            { label: 'Delete page', onSelect: () => { ed.goTo(pageMenu.i); ed.pageDelete(); }, separator: true },
+            { label: 'Duplicate page', onSelect: () => ed.pageDuplicate(pageMenu.i) },
+            { label: 'Delete page', onSelect: () => ed.pageDelete(pageMenu.i), separator: true },
           ]}
         />
       )}

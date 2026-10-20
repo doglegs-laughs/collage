@@ -131,7 +131,7 @@ function createVideoCache(dir, limits = DEFAULT_LIMITS) {
   }
 
   /** Atomically puts a fresh copy of the cached video at `output`, replacing a file there as a normal export does. */
-  const copyTo = (cached, output) => atomicCopy(cached, output, { overwrite: true });
+  const copyTo = (cached, output, options = {}) => atomicCopy(cached, output, { ...options, overwrite: true });
 
   return { find, store, prune, copyTo, dir };
 }

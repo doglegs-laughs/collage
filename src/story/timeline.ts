@@ -1,6 +1,6 @@
 import type { BeatAnalysis } from '../api';
 import { beatClock, beatLoopSeconds, hasBeats, MIN_BEAT_PAGE_SECONDS } from './beatTiming';
-import { crossesBoundary, MAX_CLIP_SECONDS, MIN_CLIP_SECONDS, timelineIsEmpty, visibleIndices, type BoundaryTransition, type Story, type Timeline, type VideoSettings } from './model';
+import { crossesBoundary, MAX_AUDIO_OFFSET_SECONDS, MAX_CLIP_SECONDS, MIN_CLIP_SECONDS, timelineIsEmpty, visibleIndices, type BoundaryTransition, type Story, type Timeline, type VideoSettings } from './model';
 
 export const DEFAULT_PAGE_SECONDS = 3;
 export const TIMELINE_FPS = 30;
@@ -185,7 +185,7 @@ export function setBoundaryTransition(story: Story, pageId: string, kind: Bounda
 }
 
 export const setAudioOffset = (story: Story, seconds: number): Story =>
-  editTimeline(story, (t) => ({ ...t, audioOffset: Math.max(0, Math.round(seconds * 1000) / 1000) }));
+  editTimeline(story, (t) => ({ ...t, audioOffset: Number.isFinite(seconds) ? Math.min(MAX_AUDIO_OFFSET_SECONDS, Math.max(0, Math.round(seconds * 1000) / 1000)) : 0 }));
 
 /** Remove every manual length, transition override and music start. */
 export const resetTimeline = (story: Story): Story => editTimeline(story, () => ({ audioOffset: 0, locked: {}, transitions: {} }));

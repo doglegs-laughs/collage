@@ -99,7 +99,7 @@ export function useExporter(getStory: () => Story) {
 
   const cancel = useCallback(() => {
     abort.current?.abort();
-    if (encoding.current) void api.cancelVideo().catch(() => {});
+    if (abort.current) void api.cancelVideo().catch(() => {});
   }, []);
 
   return { job, done, clearDone: () => setDone(null), images, video, cancel };

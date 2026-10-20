@@ -17,6 +17,10 @@ function validate(job) {
   if (!job || typeof job !== 'object') throw new Error('Invalid video job');
   const { frames, durations, transition, transitionSeconds, fps, output } = job;
   if (!output || typeof output !== 'string') throw new Error('Video job needs an output path');
+  if (job.audioPath !== undefined && (typeof job.audioPath !== 'string' || !path.isAbsolute(job.audioPath) || job.audioPath.includes('\0'))) {
+    throw new Error('Choose a local audio file for the video');
+  }
+  if (job.audioLoopSeconds !== undefined && (!Number.isFinite(job.audioLoopSeconds) || job.audioLoopSeconds <= 0)) throw new Error('audioLoopSeconds must be greater than 0');
   if (!Array.isArray(frames) || frames.length === 0) throw new Error('Video job needs at least one frame');
   if (!Array.isArray(durations) || durations.length !== frames.length) {
     throw new Error('Video job durations must match frames in count');
@@ -150,6 +154,7 @@ function buildArgs(job, size, paths, encoder = SOFTWARE_ENCODER) {
   const args = ['-y', '-hide_banner', '-loglevel', 'error'];
   const filters = [];
   for (let i = 0; i < n; i++) {
+    args.push('-protocol_whitelist', 'file,pipe');
     const frameCount = Math.max(1, Math.round(lens[i] * fps));
     if (useKb(i)) {
       // Single-frame input; zoompan generates all frames. The pre-upscale hides zoompan's whole-pixel crop
@@ -194,7 +199,7 @@ function buildArgs(job, size, paths, encoder = SOFTWARE_ENCODER) {
     const start = job.audioStartSeconds > 0 ? job.audioStartSeconds : 0;
     const trimLoop = typeof loop === 'number' && loop > 0 && loop < total + start;
     if (!trimLoop) args.push('-stream_loop', '-1');
-    args.push('-i', job.audioPath);
+    args.push('-protocol_whitelist', 'file,pipe', '-i', `file:${job.audioPath}`);
     const out = Math.min(1.5, total);
     const source = trimLoop
       ? `aresample=48000,atrim=0:${num(loop)},asetpts=PTS-STARTPTS,aloop=loop=-1:size=${Math.round(loop * 48000)}:start=0,`
@@ -268,6 +273,7 @@ async function makeVideo(job, onProgress, opts = {}) {
   current = state;
   let tmpDir = null;
   let partial = null;
+  let outputTmp = null;
   try {
     validate(job);
     const bufs = job.frames.map((f) => (Buffer.isBuffer(f) ? f : Buffer.from(f.buffer, f.byteOffset, f.byteLength)));
@@ -276,7 +282,9 @@ async function makeVideo(job, onProgress, opts = {}) {
     if (size.width < 2 || size.height < 2) throw new Error('Frame is too small');
 
     const outDir = path.dirname(path.resolve(job.output));
-    partial = path.join(outDir, `.${path.basename(job.output)}.partial.mp4`);
+    // A private directory prevents collisions and pre-existing symlinks from redirecting ffmpeg's writes.
+    outputTmp = await fs.promises.mkdtemp(path.join(outDir, '.collage-video-'));
+    partial = path.join(outputTmp, 'video.mp4');
     tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'collage-video-'));
     const framePaths = [];
     for (let i = 0; i < bufs.length; i++) {
@@ -301,12 +309,14 @@ async function makeVideo(job, onProgress, opts = {}) {
       await attempt(SOFTWARE_ENCODER);
     }
 
+    if (state.cancelled) throw abortError();
     await fs.promises.rename(partial, job.output);
     partial = null;
     return job.output;
   } finally {
     if (state.killTimer) clearTimeout(state.killTimer);
     if (partial) await rmQuiet(partial);
+    if (outputTmp) await rmQuiet(outputTmp);
     if (tmpDir) await rmQuiet(tmpDir);
     if (current === state) current = null;
     state.finish();

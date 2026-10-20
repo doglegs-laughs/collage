@@ -115,14 +115,16 @@ export function useEditor(story: Story, mutate: Mutate) {
     mutate((st) => addPage(st, emptyPage(st.background), at));
     goTo(at);
   }, [mutate, goTo]);
-  const pageDuplicate = useCallback(() => {
-    const { story: s, pageIndex: pi } = live.current;
+  const pageDuplicate = useCallback((index?: number) => {
+    const { story: s } = live.current;
+    const pi = index ?? live.current.pageIndex;
     const at = groupOf(s, pi).end;
     mutate((st) => duplicatePage(st, pi));
     goTo(at);
   }, [mutate, goTo]);
-  const pageDelete = useCallback(() => {
-    const { story: s, pageIndex: pi } = live.current;
+  const pageDelete = useCallback((index?: number) => {
+    const { story: s } = live.current;
+    const pi = index ?? live.current.pageIndex;
     const { start, end } = groupOf(s, pi);
     if (end - start > 1 && typeof window !== 'undefined' && !window.confirm(`Delete this spread (${end - start} pages)?`)) return;
     mutate((st) => removePage(st, pi));
