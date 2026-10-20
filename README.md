@@ -4,7 +4,7 @@
 
 <p align="center">Photo collages, multi-page photo stories and batch borders. Offline, on your Mac or PC.</p>
 
-<p align="center"><img src="docs/screenshots/story-clean.jpg" alt="Story editor with a Faroes cover page" width="900"></p>
+<p align="center"><img src="docs/screenshots/story-clean.jpg" alt="Story editor with a cover page" width="900"></p>
 
 Three tools in one window:
 

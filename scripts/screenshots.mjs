@@ -87,7 +87,7 @@ await page.getByRole('tab', { name: 'Story' }).click();
 await page.getByRole('button', { name: 'Add photos' }).click();
 await story.locator('.tray-item').nth(photos.length - 1).waitFor({ timeout: 90_000 });
 await settle('[data-testid="view-story"] .story-tray');
-await story.getByTestId('story-title').fill('The Faroes');
+await story.getByTestId('story-title').fill('Title');
 await story.getByTestId('story-subtitle').fill('June 2026');
 await page.getByRole('button', { name: 'Clean', exact: true }).click();
 await shot('story-start.png');
