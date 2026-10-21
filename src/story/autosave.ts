@@ -10,11 +10,14 @@ export const AUTOSAVE_WRITE_TIMEOUT_MS = 20_000;
  */
 export function createAutosaveWriter(snapshot: () => { story: Story; thumb: string | null }, timeoutMs = AUTOSAVE_WRITE_TIMEOUT_MS) {
   const sent = new Set<string>();
+  let started = snapshot().story.pages.length > 0;
   let queued: Promise<boolean> | null = null;
 
   async function writeOnce(abandoned: { value: boolean }): Promise<boolean> {
     const { story, thumb } = snapshot();
-    if (!story.pages.length) return true;
+    // Leave the startup recovery copy alone until the user has had a story in this session.
+    if (!story.pages.length && !started) return true;
+    started = true;
     try {
       const sidecar: SidecarPhoto[] = [];
       const ids: string[] = [];
@@ -22,9 +25,11 @@ export function createAutosaveWriter(snapshot: () => { story: Story; thumb: stri
         for (const p of story.photos) {
           if (p.path || !p.file || sent.has(p.id)) continue;
           sidecar.push({ id: p.id, name: p.name, data: new Uint8Array(await p.file.arrayBuffer()) });
+          if (abandoned.value) return false;
           ids.push(p.id);
         }
       }
+      if (abandoned.value) return false;
       const ok = await api.autosaveWrite(serializeStory(story), sidecar, { title: story.title, pageCount: story.pages.length, thumb });
       if (ok && !abandoned.value) ids.forEach((id) => sent.add(id));
       return ok;

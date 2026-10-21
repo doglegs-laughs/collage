@@ -11,10 +11,13 @@ export function useAutosave(story: Story, thumb: string | null) {
   latest.current = { story, thumb };
   const timer = useRef<number | undefined>(undefined);
   const writer = useRef<ReturnType<typeof createAutosaveWriter> | null>(null);
+  const hadPages = useRef(false);
+  if (story.pages.length) hadPages.current = true;
+  if (story.pages.length && !writer.current) writer.current = createAutosaveWriter(() => latest.current);
   const write = (): Promise<boolean> => (writer.current ??= createAutosaveWriter(() => latest.current))();
 
   useEffect(() => {
-    if (!story.pages.length) return;
+    if (!hadPages.current) return;
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => void write(), AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(timer.current);

@@ -79,6 +79,8 @@ export const BOUNDARY_TRANSITIONS: readonly BoundaryTransition[] = ['none', 'cro
 export type Timeline = { audioOffset: number; locked: Record<string, number>; transitions: Record<string, BoundaryTransition> };
 export const MIN_CLIP_SECONDS = 0.2;
 export const MAX_CLIP_SECONDS = 60;
+// Beat analysis accepts tracks up to 25 minutes; larger offsets are never useful and lose numeric precision.
+export const MAX_AUDIO_OFFSET_SECONDS = 25 * 60;
 export type VideoSettings = { transition: 'none' | 'crossfade'; transitionSeconds: number; kenBurns: boolean; audioPath: string | null; fitToMusic: boolean; syncToBeats: boolean; beatsPerPage: 1 | 2 | 4 | 8;
   /** Seconds for pages whose own duration is still the default 3 s (the video dialog's slider). Absent = 3. */
   pageSeconds?: number; timeline?: Timeline };
@@ -414,16 +416,40 @@ const fail = (msg: string): never => {
 const num = (v: unknown, what: string): number => (typeof v === 'number' && Number.isFinite(v) ? v : fail(`Invalid number for ${what}`));
 const str = (v: unknown, what: string): string => (typeof v === 'string' ? v : fail(`Invalid text for ${what}`));
 
+const positive = (v: unknown, what: string): number => {
+  const n = num(v, what);
+  return n > 0 ? n : fail(`${what} must be greater than zero`);
+};
+const nonnegative = (v: unknown, what: string): number => {
+  const n = num(v, what);
+  return n >= 0 ? n : fail(`${what} must not be negative`);
+};
+const identifier = (v: unknown, what: string): string => {
+  const id = str(v, what);
+  return id && !Object.hasOwn(Object.prototype, id) && id !== 'prototype' ? id : fail(`Invalid ${what}`);
+};
+const uniqueIds = (items: { id: string }[], what: string) => {
+  if (new Set(items.map((item) => item.id)).size !== items.length) fail(`Duplicate ${what} id`);
+};
+
 function readElement(raw: unknown): El {
   if (!isObj(raw)) return fail('Invalid element');
-  const base = { id: str(raw.id, 'element id'), x: num(raw.x, 'x'), y: num(raw.y, 'y'), w: num(raw.w, 'w'), h: num(raw.h, 'h'), rotation: num(raw.rotation ?? 0, 'rotation'), z: num(raw.z ?? 0, 'z') };
+  const base = { id: identifier(raw.id, 'element id'), x: num(raw.x, 'x'), y: num(raw.y, 'y'), w: positive(raw.w, 'w'), h: positive(raw.h, 'h'), rotation: num(raw.rotation ?? 0, 'rotation'), z: num(raw.z ?? 0, 'z') };
+  const shadow = raw.shadow === true;
   if (raw.kind === 'photo') {
-    const d = defaultPhotoEl();
     const c = isObj(raw.crop) ? raw.crop : {};
-    return { ...d, ...(raw as Partial<PhotoEl>), ...base, kind: 'photo', photoId: typeof raw.photoId === 'string' ? raw.photoId : null, crop: { zoom: num(c.zoom ?? 1, 'zoom'), cx: num(c.cx ?? 0.5, 'cx'), cy: num(c.cy ?? 0.5, 'cy') } };
+    return { ...base, kind: 'photo', photoId: typeof raw.photoId === 'string' ? raw.photoId : null,
+      crop: { zoom: positive(c.zoom ?? 1, 'zoom'), cx: num(c.cx ?? 0.5, 'cx'), cy: num(c.cy ?? 0.5, 'cy') },
+      frame: nonnegative(raw.frame ?? 0, 'frame'), frameBottom: nonnegative(raw.frameBottom ?? 0, 'frame bottom'),
+      frameColor: str(raw.frameColor ?? '#ffffff', 'frame color'), shadow, blur: nonnegative(raw.blur ?? 0, 'blur') };
   }
-  if (raw.kind === 'text') return { ...defaultTextEl(), ...(raw as Partial<TextEl>), ...base, kind: 'text', text: str(raw.text ?? '', 'text'), font: isFontKey(raw.font) ? raw.font : 'sans' };
-  if (raw.kind === 'rect') return { ...defaultRectEl(), ...(raw as Partial<RectEl>), ...base, kind: 'rect' };
+  if (raw.kind === 'text') return { ...base, kind: 'text', text: str(raw.text ?? '', 'text'), font: isFontKey(raw.font) ? raw.font : 'sans',
+    size: positive(raw.size ?? 0.04, 'text size'), weight: [100, 200, 300, 400, 500, 600, 700, 800, 900].includes(raw.weight as number) ? raw.weight as TextEl['weight'] : 400,
+    color: str(raw.color ?? '#111111', 'text color'), align: raw.align === 'left' || raw.align === 'right' ? raw.align : 'center',
+    letterSpacing: num(raw.letterSpacing ?? 0, 'letter spacing'), uppercase: raw.uppercase === true, shadow,
+    ...(raw.role === 'title' || raw.role === 'subtitle' ? { role: raw.role } : {}) };
+  if (raw.kind === 'rect') return { ...base, kind: 'rect', fill: str(raw.fill ?? '#ffffff', 'fill'), stroke: str(raw.stroke ?? 'transparent', 'stroke'),
+    strokeWidth: nonnegative(raw.strokeWidth ?? 0, 'stroke width'), radius: nonnegative(raw.radius ?? 0, 'radius'), shadow };
   return fail(`Unknown element kind ${String(raw.kind)}`);
 }
 
@@ -440,20 +466,27 @@ export function deserializeStory(json: string): Story {
   const aspect = raw.aspect as Aspect;
   if (!ASPECTS.includes(aspect)) return fail('Unknown page aspect.');
   if (!Array.isArray(raw.pages) || !Array.isArray(raw.photos)) return fail('Project is missing pages or photos.');
+  const pageCount = raw.pages.length;
   const photos: Photo[] = raw.photos.map((p: unknown) => {
     if (!isObj(p)) return fail('Invalid photo entry');
-    return { id: str(p.id, 'photo id'), name: str(p.name, 'photo name'), ...(typeof p.path === 'string' ? { path: p.path } : {}), width: num(p.width, 'photo width'), height: num(p.height, 'photo height') };
+    return { id: identifier(p.id, 'photo id'), name: str(p.name, 'photo name'), ...(typeof p.path === 'string' ? { path: p.path } : {}), width: positive(p.width, 'photo width'), height: positive(p.height, 'photo height') };
   });
   const pages: Page[] = raw.pages.map((p: unknown) => {
     if (!isObj(p) || !Array.isArray(p.elements)) return fail('Invalid page');
     const spread = isObj(p.spread) ? { index: num(p.spread.index, 'spread'), count: num(p.spread.count, 'spread') } : undefined;
+    if (spread && (!Number.isInteger(spread.index) || !Number.isInteger(spread.count) || spread.index < 0 || spread.count < 2 || spread.index >= spread.count || spread.count > pageCount)) return fail('Invalid spread');
     const elements = p.elements.map(readElement);
     const lead = elements.find((e): e is PhotoEl => e.kind === 'photo');
     // Pages saved before finishes existed: 'stack-3-tight' becomes stack-3 + tight, and so on.
     const old = migrateTemplate(typeof p.templateId === 'string' ? p.templateId : null, !!lead && (lead.w * aspectRatio(aspect)) / Math.max(1e-9, lead.h) < 1);
     const finish = isFinishId(p.finish) ? p.finish : old.finish;
-    return { id: str(p.id, 'page id'), templateId: old.templateId, ...(finish ? { finish } : {}), background: typeof p.background === 'string' ? p.background : '#ffffff', duration: typeof p.duration === 'number' && Number.isFinite(p.duration) ? Math.min(60, Math.max(0.5, p.duration)) : 3, elements, ...(spread ? { spread } : {}), ...(p.hidden === true ? { hidden: true } : {}) };
+    return { id: identifier(p.id, 'page id'), templateId: old.templateId, ...(finish ? { finish } : {}), background: typeof p.background === 'string' ? p.background : '#ffffff', duration: typeof p.duration === 'number' && Number.isFinite(p.duration) ? Math.min(60, Math.max(0.5, p.duration)) : 3, elements, ...(spread ? { spread } : {}), ...(p.hidden === true ? { hidden: true } : {}) };
   });
+  uniqueIds(photos, 'photo');
+  uniqueIds(pages, 'page');
+  // Element ids only drive selection, so a repeated one gets a fresh id instead of making the whole project unreadable.
+  const seenEls = new Set<string>();
+  for (const pg of pages) pg.elements = pg.elements.map((e) => (seenEls.has(e.id) ? { ...e, id: newId() } : (seenEls.add(e.id), e)));
   const title = typeof raw.title === 'string' ? raw.title : '';
   const subtitle = typeof raw.subtitle === 'string' ? raw.subtitle : '';
   const flat = (t: string) => t.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -481,7 +514,11 @@ export function deserializeStory(json: string): Story {
     pages,
     photos,
     video: {
-      ...DEFAULT_VIDEO, ...(v as Partial<VideoSettings>),
+      transition: v.transition === 'none' ? 'none' : 'crossfade',
+      transitionSeconds: typeof v.transitionSeconds === 'number' && Number.isFinite(v.transitionSeconds) ? Math.min(1.5, Math.max(0.2, v.transitionSeconds)) : DEFAULT_VIDEO.transitionSeconds,
+      kenBurns: v.kenBurns === true,
+      audioPath: typeof v.audioPath === 'string' && !v.audioPath.includes('\0') && !/^[a-z][a-z0-9+.-]*:/i.test(v.audioPath.replace(/^[A-Za-z]:[\\/]/, '')) ? v.audioPath : null,
+      fitToMusic: v.fitToMusic === true,
       syncToBeats: v.syncToBeats === true,
       beatsPerPage: [1, 2, 4, 8].includes(v.beatsPerPage as number) ? v.beatsPerPage as 1 | 2 | 4 | 8 : 4,
       ...(pageSeconds !== undefined ? { pageSeconds } : {}),
@@ -493,7 +530,7 @@ export function deserializeStory(json: string): Story {
 /** Validate a saved timeline: offset >= 0, durations clamped to 0.2-60 s, entries for pages that no longer exist dropped. */
 function readTimeline(raw: unknown, pageIds: ReadonlySet<string>): Timeline | undefined {
   if (!isObj(raw)) return undefined;
-  const audioOffset = typeof raw.audioOffset === 'number' && Number.isFinite(raw.audioOffset) ? Math.max(0, raw.audioOffset) : 0;
+  const audioOffset = typeof raw.audioOffset === 'number' && Number.isFinite(raw.audioOffset) ? Math.min(MAX_AUDIO_OFFSET_SECONDS, Math.max(0, raw.audioOffset)) : 0;
   const locked: Record<string, number> = {};
   if (isObj(raw.locked)) {
     for (const [id, d] of Object.entries(raw.locked)) {

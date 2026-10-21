@@ -70,7 +70,10 @@ export function useProject(getStory: () => Story, lib: PhotoLibrary, onLoad: (s:
     try {
       if (isDirty?.() && !window.confirm('Opening a project replaces the story you are editing, and its unsaved changes will be lost. Open anyway?')) return;
       const parsed = deserializeStory(file.json);
-      const loaded = { ...parsed, photos: parsed.photos.map((p) => (p.path ? { ...p, path: resolvePhotoPath(file.path, p.path) } : p)) };
+      const loaded = { ...parsed,
+        video: { ...parsed.video, audioPath: parsed.video.audioPath ? resolvePhotoPath(file.path, parsed.video.audioPath) : null },
+        photos: parsed.photos.map((p) => (p.path ? { ...p, path: resolvePhotoPath(file.path, p.path) } : p)),
+      };
       const paths = loaded.photos.flatMap((p) => (p.path ? [p.path] : []));
       const found = paths.length ? await lib.addPaths(paths) : [];
       const { story, missing } = relinkPhotos(loaded, found);

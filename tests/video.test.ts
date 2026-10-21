@@ -49,6 +49,34 @@ describe('video', () => {
     expect(video.probeJpegSize(Buffer.from(frames[0]))).toEqual({ width: 320, height: 400 });
   });
 
+  it('restricts audio inputs to local files and disables nested network protocols', () => {
+    for (const audioPath of ['https://evil.test/a.mp3', 'pipe:0', 'concat:a|b']) {
+      expect(() => video.validate({ ...base(), output: path.join(dir, 'x.mp4'), audioPath })).toThrow(/local audio/);
+    }
+    const args: string[] = video.buildArgs({ ...base(), audioPath: audio }, { width: 320, height: 400 }, { frames: ['a', 'b', 'c'], output: 'o.mp4' });
+    expect(args).toContain(`file:${audio}`);
+    expect(args[args.indexOf('-protocol_whitelist') + 1]).toBe('file,pipe');
+  });
+
+  it('preserves unrelated files at the old predictable temporary path', async () => {
+    const output = path.join(dir, 'safe.mp4');
+    const oldPartial = path.join(dir, '.safe.mp4.partial.mp4');
+    fs.writeFileSync(oldPartial, 'keep');
+    await video.makeVideo({ ...base(), output, frames: [frames[0]], durations: [0.3], transition: 'none', kenBurns: false }, () => {});
+    expect(fs.readFileSync(oldPartial, 'utf8')).toBe('keep');
+    fs.unlinkSync(oldPartial);
+    expect(fs.readdirSync(dir).some((p) => p.startsWith('.collage-video-'))).toBe(false);
+  });
+
+  it('honours cancellation at the end of encoding before publishing the output', async () => {
+    const output = path.join(dir, 'cancel-at-end.mp4');
+    fs.writeFileSync(output, 'previous video');
+    await expect(video.makeVideo({ ...base(), output, frames: [frames[0]], durations: [0.3], transition: 'none', kenBurns: false }, (fraction: number) => {
+      if (fraction === 1) void video.cancel();
+    })).rejects.toThrow(/cancelled/);
+    expect(fs.readFileSync(output, 'utf8')).toBe('previous video');
+  });
+
   it('builds crossfade args with accumulated offsets', () => {
     const args: string[] = video.buildArgs({ ...base(), audioPath: audio }, { width: 320, height: 400 }, { frames: ['a', 'b', 'c'], output: 'o.mp4' });
     const fc = args[args.indexOf('-filter_complex') + 1];

@@ -67,9 +67,9 @@ test('edits clip lengths against the beats, changes a transition, undoes, and ex
     const analysis = await page.evaluate((p) => window.api!.analyzeAudio(p), music);
     expect(analysis.peaks!.length).toBeGreaterThan(100);
 
-    // Zoom so one second is 60 px, then drag the first clip's right edge from 3.0 s to about the beat at 3.7 s (a few px off: it snaps).
+    // Respect the fit-to-window minimum on wider displays, then drag to a nearby beat (a few px off: it snaps).
     const zoom = panel.getByRole('slider', { name: 'Timeline zoom' });
-    await zoom.fill('50');
+    await zoom.fill(String(Math.max(50, Number(await zoom.getAttribute('min')))));
     const PPS = Number(await zoom.inputValue()); // px per second (beats 0.5 s apart are then about 25 px apart; snapping reaches 8 px)
     await panel.getByTestId('tl-scroll').evaluate((el) => { el.scrollLeft = 0; });
     const target = analysis.beats.find((b) => b > 3.5)!;

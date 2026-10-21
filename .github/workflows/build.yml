@@ -6,7 +6,23 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node -e "require('electron')"
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg xvfb
+      - run: xvfb-run -a npm run e2e
+
   build:
     runs-on: macos-14   # Apple Silicon
     steps:
@@ -68,7 +84,7 @@ jobs:
   # Publishes a GitHub Release for the version in package.json once both builds pass on main.
   # A version that already has a release is skipped, so later pushes never replace published files.
   release:
-    needs: [build, windows]
+    needs: [e2e, build, windows]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

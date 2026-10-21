@@ -88,3 +88,30 @@ it('abandons a hung write so later operations still run', async () => {
   await store.clear();
   expect(await store.read()).toBeNull();
 });
+
+it('prevents a timed-out write from replacing a newer autosave when it resumes', async () => {
+  const store = createAutosaveStore(dir, { timeoutMs: 50 });
+  const pause = pauseFirstWrite();
+  const first = store.write(project('stale'), [], { title: 'stale' });
+  await pause.ready;
+  await expect(first).rejects.toThrow('timed out');
+  await store.write(project('latest'), [], { title: 'latest' });
+  pause.resume();
+  await vi.waitFor(async () => expect((await fs.readdir(path.join(dir, 'autosave'))).filter((p) => p.endsWith('.tmp'))).toEqual([]));
+  const saved = (await store.read())!;
+  expect(JSON.parse(saved.json).title).toBe('latest');
+  expect(saved.meta.title).toBe('latest');
+});
+
+it('does not resurrect a cleared autosave when a timed-out write resumes', async () => {
+  const store = createAutosaveStore(dir, { timeoutMs: 50 });
+  const pause = pauseFirstWrite();
+  const first = store.write(project('stale'), [], {});
+  await pause.ready;
+  await expect(first).rejects.toThrow('timed out');
+  await store.clear();
+  pause.resume();
+  // The resumed temporary write fails because clear removed the containing directory.
+  await new Promise((r) => setImmediate(r));
+  expect(await store.read()).toBeNull();
+});

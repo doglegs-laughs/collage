@@ -41,7 +41,10 @@ const photosDir = (dir) => path.join(dir, 'Autosave Photos');
  * Write the autosave. `sidecar` photos (no file on disk) are stored under "Autosave Photos";
  * `known` maps photo id to the stored path for photos written earlier. Returns the id to path map.
  */
-async function writeAutosave(dir, json, sidecar, known, meta) {
+async function writeAutosave(dir, json, sidecar, known, meta, signal) {
+  const project = JSON.parse(String(json));
+  const options = { signal };
+  signal?.throwIfAborted();
   await fs.mkdir(path.dirname(autosaveFile(dir)), { recursive: true });
   const paths = { ...known };
   if (Array.isArray(sidecar) && sidecar.length) {
@@ -49,14 +52,13 @@ async function writeAutosave(dir, json, sidecar, known, meta) {
     for (const item of sidecar) {
       const name = `${String(item.id).replace(UNSAFE, '_')}-${path.basename(String(item.name || 'photo.jpg')).replace(UNSAFE, '_')}`;
       const target = path.join(photosDir(dir), name);
-      await atomicWrite(target, item.data);
-      paths[item.id] = target;
+      await atomicWrite(target, item.data, options);
+      Object.defineProperty(paths, item.id, { value: target, enumerable: true, configurable: true, writable: true });
     }
   }
-  const project = JSON.parse(String(json));
-  if (Array.isArray(project.photos)) for (const p of project.photos) if (!p.path && paths[p.id]) p.path = paths[p.id];
-  await atomicWrite(autosaveFile(dir), Buffer.from(JSON.stringify(project), 'utf8'));
-  await atomicWrite(autosaveMeta(dir), Buffer.from(JSON.stringify({ ...(meta && typeof meta === 'object' ? meta : {}), savedAt: Date.now() }), 'utf8'));
+  if (Array.isArray(project.photos)) for (const p of project.photos) if (!p.path && Object.hasOwn(paths, p.id)) p.path = paths[p.id];
+  await atomicWrite(autosaveFile(dir), Buffer.from(JSON.stringify(project), 'utf8'), options);
+  await atomicWrite(autosaveMeta(dir), Buffer.from(JSON.stringify({ ...(meta && typeof meta === 'object' ? meta : {}), savedAt: Date.now() }), 'utf8'), options);
   return paths;
 }
 async function readAutosave(dir) {
@@ -78,34 +80,41 @@ const OPERATION_TIMEOUT_MS = 20_000;
 
 /**
  * Serialize writes and clears, including the sidecar path bookkeeping. Reads skip the queue: every file is replaced
- * atomically, so they see the last committed autosave. An operation that hangs is abandoned after `timeoutMs` so it
- * cannot block the ones behind it.
+ * atomically, so they see the last committed autosave. Writes that time out cannot publish late temporary files.
+ * Clears finish before later writes start: a recursive deletion cannot safely be abandoned mid-operation.
  */
 function createAutosaveStore(dir, { timeoutMs = OPERATION_TIMEOUT_MS } = {}) {
   let paths = {};
   let pending = Promise.resolve();
   const withTimeout = (operation) => {
+    const controller = new AbortController();
     let timer;
     const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Autosave operation timed out after ${timeoutMs} ms`)), timeoutMs);
+      timer = setTimeout(() => {
+        const error = new Error(`Autosave operation timed out after ${timeoutMs} ms`);
+        controller.abort(error);
+        reject(error);
+      }, timeoutMs);
     });
-    return Promise.race([operation(), timeout]).finally(() => clearTimeout(timer));
+    return Promise.race([operation(controller.signal), timeout]).finally(() => clearTimeout(timer));
   };
-  const enqueue = (operation) => {
-    const result = pending.then(() => withTimeout(operation));
+  const enqueue = (operation, timed = true) => {
+    const result = pending.then(() => timed ? withTimeout(operation) : operation());
     // A failed save must not prevent the next save or a clear from running.
     pending = result.catch(() => {});
     return result;
   };
   return {
-    write: (json, sidecar, meta) => enqueue(async () => {
-      paths = await writeAutosave(dir, json, sidecar, paths, meta);
+    write: (json, sidecar, meta) => enqueue(async (signal) => {
+      const next = await writeAutosave(dir, json, sidecar, paths, meta, signal);
+      signal.throwIfAborted();
+      paths = next;
     }),
     read: () => readAutosave(dir),
     clear: () => enqueue(async () => {
       await clearAutosave(dir);
       paths = {};
-    }),
+    }, false),
   };
 }
 

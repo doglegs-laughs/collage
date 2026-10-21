@@ -43,10 +43,12 @@ function atomicCopy(source, target, options = {}) {
   return atomicPlace(target, (tmp) => fs.copyFile(source, tmp), options);
 }
 
-async function atomicPlace(target, fill, { overwrite = true } = {}) {
+async function atomicPlace(target, fill, { overwrite = true, signal } = {}) {
   const tmp = path.join(path.dirname(target), `.${path.basename(target)}.${randomUUID().slice(0, 8)}.tmp`);
   try {
+    signal?.throwIfAborted();
     await fill(tmp);
+    signal?.throwIfAborted();
     if (overwrite) {
       await fs.rename(tmp, target);
       return;
@@ -54,12 +56,12 @@ async function atomicPlace(target, fill, { overwrite = true } = {}) {
     try {
       await fs.link(tmp, target);
     } catch (error) {
-      if (error.code === 'EEXIST') throw new Error(`${path.basename(target)} already exists`);
+      if (error.code === 'EEXIST') throw Object.assign(new Error(`${path.basename(target)} already exists`), { code: 'EEXIST' });
       if (!linkUnsupported(error)) throw error;
       try {
         await fs.copyFile(tmp, target, constants.COPYFILE_EXCL);
       } catch (copyError) {
-        if (copyError.code === 'EEXIST') throw new Error(`${path.basename(target)} already exists`);
+        if (copyError.code === 'EEXIST') throw Object.assign(new Error(`${path.basename(target)} already exists`), { code: 'EEXIST' });
         // The exclusive copy created the target, so a failure part-way leaves a truncated file behind.
         await fs.rm(target, { force: true });
         throw copyError;
@@ -101,23 +103,35 @@ const UNSAFE_NAME = /[\\/:*?"<>|\u0000-\u001f]/g;
 
 /**
  * Writes photos that have no file of their own into `<project name> Photos/` beside the project file and returns the
- * project JSON with each of those photos' `path` set to the relative path (forward slashes). Existing files are replaced.
+ * project JSON with each of those photos' `path` set to the relative path (forward slashes).
+ * Existing identical photos are reused; different bytes get a fresh name so older project snapshots stay valid.
  */
 async function writeSidecar(projectPath, jsonText, items) {
+  const project = JSON.parse(jsonText);
   const dir = path.dirname(projectPath);
   const folder = `${path.basename(projectPath, path.extname(projectPath))} Photos`;
   await fs.mkdir(path.join(dir, folder), { recursive: true });
-  const project = JSON.parse(jsonText);
   const used = new Set();
   const relById = new Map();
   for (const item of items) {
-    let name = path.basename(String(item.name || 'photo.jpg')).replace(UNSAFE_NAME, '_').replace(/^\.+/, '_') || 'photo.jpg';
-    for (let n = 2; used.has(name.toLowerCase()); n++) {
-      const ext = path.extname(name);
-      name = `${path.basename(name, ext)} ${n}${ext}`;
+    const original = path.basename(String(item.name || 'photo.jpg')).replace(UNSAFE_NAME, '_').replace(/^\.+/, '_') || 'photo.jpg';
+    const ext = path.extname(original);
+    let name;
+    for (let n = 1; ; n++) {
+      name = n === 1 ? original : `${path.basename(original, ext)} ${n}${ext}`;
+      if (used.has(name.toLowerCase())) continue;
+      const target = path.join(dir, folder, name);
+      try {
+        const existing = await fs.readFile(target);
+        if (existing.equals(toBuffer(item.data))) break;
+        continue;
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+      try { await atomicWrite(target, item.data, { overwrite: false }); break; }
+      catch (error) { if (error.code !== 'EEXIST') throw error; }
     }
     used.add(name.toLowerCase());
-    await atomicWrite(path.join(dir, folder, name), item.data);
     relById.set(item.id, `${folder}/${name}`);
   }
   if (Array.isArray(project.photos)) {
