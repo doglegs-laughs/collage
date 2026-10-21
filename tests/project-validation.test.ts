@@ -24,7 +24,6 @@ describe('untrusted project validation', () => {
     ['photo size', (s: any) => { s.photos[0].height = 0; }],
     ['element size', (s: any) => { s.pages[0].elements[0].w = -1; }],
     ['duplicate page', (s: any) => { s.pages.push({ ...s.pages[0], elements: [] }); }],
-    ['duplicate element', (s: any) => { s.pages[0].elements.push(s.pages[0].elements[0]); }],
     ['duplicate photo', (s: any) => { s.photos.push(s.photos[0]); }],
     ['reserved id', (s: any) => { s.pages[0].id = 'constructor'; }],
     ['inherited dictionary key', (s: any) => { s.pages[0].id = 'toString'; }],
@@ -32,6 +31,14 @@ describe('untrusted project validation', () => {
   ])('rejects invalid %s before it reaches the editor', (_label, change) => {
     const s = project(); change(s);
     expect(() => deserializeStory(JSON.stringify(s))).toThrow(StoryFormatError);
+  });
+
+  it('gives a repeated element id a fresh one instead of rejecting the project', () => {
+    const s = project();
+    s.pages[0].elements.push({ ...s.pages[0].elements[0] });
+    const ids = deserializeStory(JSON.stringify(s)).pages[0].elements.map((e) => e.id);
+    expect(ids).toHaveLength(s.pages[0].elements.length);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('normalizes video settings and discards unknown element and video properties', () => {

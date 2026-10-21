@@ -484,7 +484,9 @@ export function deserializeStory(json: string): Story {
   });
   uniqueIds(photos, 'photo');
   uniqueIds(pages, 'page');
-  uniqueIds(pages.flatMap((p) => p.elements), 'element');
+  // Element ids only drive selection, so a repeated one gets a fresh id instead of making the whole project unreadable.
+  const seenEls = new Set<string>();
+  for (const pg of pages) pg.elements = pg.elements.map((e) => (seenEls.has(e.id) ? { ...e, id: newId() } : (seenEls.add(e.id), e)));
   const title = typeof raw.title === 'string' ? raw.title : '';
   const subtitle = typeof raw.subtitle === 'string' ? raw.subtitle : '';
   const flat = (t: string) => t.replace(/\s+/g, ' ').trim().toLowerCase();
