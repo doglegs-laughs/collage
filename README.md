@@ -6,37 +6,64 @@
 
 <p align="center"><img src="docs/screenshots/story-clean.jpg" alt="Story editor with a cover page" width="900"></p>
 
-Three tools in one window:
+Three tools in one app:
 
-- **Story:** turns a folder of photos into a finished Instagram-style carousel in one click, then lets you refine every page. Export as numbered JPEGs or an MP4 with music.
-- **Collage:** a single image, either as a classic grid or using any Story layout.
-- **Borders:** adds a white border, black border, print mat, frame or polaroid card to many photos at once.
+- **Story:** turn a folder of photos into a finished multi-page post (like an Instagram carousel) in one click, then adjust any page. Save it as pictures or as a video with music.
+- **Collage:** combine photos into one picture.
+- **Borders:** add a white border, black border, mat, frame or polaroid look to many photos at once.
 
-Photos never leave your computer.
+It works without internet, and your photos never leave your computer. It's free.
 
-## Download
+## Install
 
-Get the latest build from [Releases](../../releases/latest):
+### Mac
 
-| File | For |
-|---|---|
-| `Collage-mac-arm64.zip` | Macs with Apple Silicon (M1 or later) |
-| `Collage-Setup-<version>-x64.exe` | Windows 10/11 installer |
-| `Collage-win-x64.zip` | Windows, portable (no install) |
+You need a Mac with Apple silicon (M1 or newer). To check: click the Apple menu (top-left corner of the screen) → **About This Mac**. If it says **Chip: Apple M1** (or M2, M3, M4…), you're set. Macs with Intel chips aren't supported.
 
-The builds are not code-signed, so the first launch needs one extra step:
+1. Go to the [latest release](../../releases/latest), scroll down to **Assets**, and click **Collage-mac-arm64.zip** to download it.
+2. Open your **Downloads** folder and double-click the zip file. A **Collage** app appears next to it. (Safari sometimes does this for you.)
+3. Drag **Collage** into your **Applications** folder.
+4. Double-click **Collage** to open it. The first time, your Mac stops it with a message that it can't check the app for malware. This is expected: the app isn't registered with Apple. Click **Done** (or **Cancel**), not Move to Trash.
+5. Click the Apple menu (top-left corner) → **System Settings** → **Privacy & Security**, then scroll down to the **Security** section.
+6. Next to the message about Collage, click **Open Anyway**. (The button only shows for about an hour after step 4. If you don't see it, do step 4 again.)
+7. Enter your Mac password, then click **Open**.
 
-- **macOS:** unzip, move `Collage.app` to Applications, then run once in Terminal:
-  ```
-  xattr -dr com.apple.quarantine /Applications/Collage.app
-  ```
-- **Windows:** if SmartScreen says "Windows protected your PC", click **More info**, then **Run anyway**.
+You only do this once. From then on, Collage opens like any other app. Apple explains the same steps in [Open a Mac app from an unknown developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac).
+
+<details>
+<summary>If your Mac says Collage "is damaged and can't be opened"</summary>
+
+The app isn't damaged; your Mac is being cautious about apps from the internet. To fix it:
+
+1. Press **Command (⌘) + Space**, type **Terminal**, and press **Return**.
+2. Copy this line, paste it into the Terminal window, and press **Return**:
+   ```
+   xattr -dr com.apple.quarantine /Applications/Collage.app
+   ```
+3. Close Terminal and open Collage again.
+
+</details>
+
+### Windows
+
+Works on Windows 10 and 11.
+
+1. Go to the [latest release](../../releases/latest), scroll down to **Assets**, and click the file that starts with **Collage-Setup** and ends in **.exe**.
+2. Open the downloaded file.
+3. If a blue box says **"Windows protected your PC"**, click **More info**, then **Run anyway**. This appears because the app isn't registered with Microsoft.
+4. Click through the installer (**Next**, **Install**, **Finish**). Collage opens when you click Finish, and you'll find it in the Start menu afterwards.
+
+Can't install apps on your PC? Download **Collage-win-x64.zip** instead, right-click it, choose **Extract All**, and open **Collage.exe** in the extracted folder.
+
+### Updating
+
+Download the new version the same way and replace the old app. Your stories are kept.
 
 ## Story
 
 <p><img src="docs/screenshots/story-start.jpg" alt="Make story start screen" width="900"></p>
 
-1. Add photos: **Add photos**, drag and drop, or paste. Click a thumbnail to include or exclude it. Double-click a thumbnail (or press Space) for a large preview.
+1. Click the **Story** tab, then **Add photos** (or drag photos onto the window). Click a thumbnail to include or exclude it. Double-click a thumbnail (or press Space) for a large preview.
 2. Pick **Clean** or **Stylized**, optionally type a title and subtitle, and choose a page shape (4:5 suits Instagram).
 3. Click **Make story**. **Shuffle** regenerates the whole story with a different arrangement.
 
@@ -118,7 +145,7 @@ Pick a finish (**White border, Black border, Print mat, Framed, Polaroid**), the
 | Space | Large preview of the focused thumbnail |
 | Esc | Deselect, or leave box-moving mode |
 
-## Develop
+## For developers
 
 Electron + React + TypeScript (Vite). ffmpeg (bundled) handles video.
 
