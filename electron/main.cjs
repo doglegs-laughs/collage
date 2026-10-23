@@ -6,7 +6,7 @@ const video = require('./video.cjs');
 const store = require('./store.cjs');
 const { analyzeAudio } = require('./beats.cjs');
 const { createVideoCache, computeKey } = require('./video-cache.cjs');
-const { rendererUrl, sameDocument, trustedSender } = require('./security.cjs');
+const { assertLocalPath, isRemotePath, rendererUrl, sameDocument, trustedSender } = require('./security.cjs');
 
 const isMac = process.platform === 'darwin';
 const devUrl = !app.isPackaged && process.env.VITE_DEV_SERVER_URL;
@@ -15,9 +15,10 @@ const appUrl = rendererUrl(path.join(__dirname, '..', 'dist', 'renderer', 'index
 const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif', 'heic', 'heif', ...(isMac ? ['tif', 'tiff'] : [])];
 const AUDIO_EXT = ['mp3', 'm4a', 'aac', 'wav', 'aiff', 'flac', 'ogg'];
 
-if (process.env.COLLAGE_USER_DATA) app.setPath('userData', process.env.COLLAGE_USER_DATA);
+// Test hooks are ignored in a packaged app, so an environment variable cannot redirect user data or disable the sandbox.
+if (!app.isPackaged && process.env.COLLAGE_USER_DATA) app.setPath('userData', process.env.COLLAGE_USER_DATA);
 
-if (process.env.COLLAGE_NO_SANDBOX === '1' || (process.getuid && process.getuid() === 0)) {
+if ((!app.isPackaged && process.env.COLLAGE_NO_SANDBOX === '1') || (process.getuid && process.getuid() === 0)) {
   app.commandLine.appendSwitch('no-sandbox');
 }
 
@@ -131,6 +132,7 @@ async function refreshRecents(add, remove) {
 
 async function openRecent(file) {
   try {
+    assertLocalPath(file);
     const json = await fs.readFile(file, 'utf8');
     if (mainWindow) mainWindow.webContents.send('project:open-recent', { path: file, json });
     await refreshRecents(file);
@@ -211,20 +213,20 @@ function registerIpc() {
     const r = await dialog.showOpenDialog(win(), { properties: ['openFile'], filters: filterFor('Audio', AUDIO_EXT) });
     return r.canceled ? null : r.filePaths[0];
   });
-  handle('audio:analyze', (_e, file, soft) => analyzeAudio(file, soft === true));
+  handle('audio:analyze', (_e, file, soft) => analyzeAudio(assertLocalPath(file), soft === true));
   handle('dialog:chooseFolder', async () => {
     const r = await dialog.showOpenDialog(win(), { properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];
   });
-  handle('file:read', async (_e, file) => new Uint8Array(await readImage(String(file))));
+  handle('file:read', async (_e, file) => new Uint8Array(await readImage(assertLocalPath(String(file)))));
   handle('file:save', async (_e, opts) => {
     const r = await dialog.showSaveDialog(win(), { defaultPath: opts.defaultName, filters: opts.filters });
     if (r.canceled || !r.filePath) return null;
     await atomicWrite(r.filePath, opts.data);
     return r.filePath;
   });
-  handle('file:write', (_e, file, data, options) => atomicWrite(String(file), data, { overwrite: options?.overwrite === true }));
-  handle('file:exists', (_e, file) => exists(String(file)));
+  handle('file:write', (_e, file, data, options) => atomicWrite(assertLocalPath(String(file)), data, { overwrite: options?.overwrite === true }));
+  handle('file:exists', (_e, file) => isRemotePath(String(file)) ? false : exists(String(file)));
   on('file:reveal', (_e, file) => shell.showItemInFolder(String(file)));
 
   handle('project:save', async (_e, json, suggestedName, sidecar) => {
@@ -247,6 +249,7 @@ function registerIpc() {
   handle('recent:remove', async (_e, file) => { await refreshRecents(null, String(file)); });
   handle('recent:open', async (_e, file) => {
     const f = String(file);
+    if (isRemotePath(f)) return null;
     try {
       const json = await fs.readFile(f, 'utf8');
       await refreshRecents(f);
@@ -275,12 +278,14 @@ function registerIpc() {
 
   // { key, hit }: key is null when the job cannot be cached.
   handle('video:cache-lookup', async (_event, spec) => {
+    if (isRemotePath(spec?.audioPath) || (Array.isArray(spec?.photos) && spec.photos.some((p) => isRemotePath(p?.path)))) return { key: null, hit: false };
     const key = await computeKey(spec, await video.pickEncoder());
     return { key, hit: key ? !!(await getVideoCache().find(key)) : false };
   });
 
   // Returns the output path, or '' when the user cancels the save dialog.
   handle('video:make', async (event, job) => {
+    if (isRemotePath(job?.audioPath)) throw new Error('Network paths are not supported');
     if (videoRequest) throw new Error('A video export is already running');
     const request = new AbortController();
     videoRequest = request;
@@ -288,12 +293,10 @@ function registerIpc() {
       const cacheKey = typeof job.cacheKey === 'string' ? job.cacheKey : null;
       const cached = cacheKey ? await getVideoCache().find(cacheKey) : null;
       if (cacheKey && !cached && !(Array.isArray(job.frames) && job.frames.length)) throw new Error('VIDEO_CACHE_MISS');
-      let output = job.output;
-      if (!output) {
-        const r = await dialog.showSaveDialog(win(), { defaultPath: typeof job.suggestedName === 'string' && job.suggestedName ? path.basename(job.suggestedName) : 'story.mp4', filters: filterFor('MP4 video', ['mp4']) });
-        if (r.canceled || !r.filePath) return '';
-        output = r.filePath;
-      }
+      // The destination always comes from the save dialog; a path supplied by the renderer is ignored.
+      const r = await dialog.showSaveDialog(win(), { defaultPath: typeof job.suggestedName === 'string' && job.suggestedName ? path.basename(job.suggestedName) : 'story.mp4', filters: filterFor('MP4 video', ['mp4']) });
+      if (r.canceled || !r.filePath) return '';
+      const output = r.filePath;
       request.signal.throwIfAborted();
       if (cached) {
         await getVideoCache().copyTo(cached, output, { signal: request.signal });

@@ -82,9 +82,23 @@ function convertibleKind(buf) {
   return null;
 }
 
+const MAX_IMAGE_BYTES = 200 * 1024 * 1024;
+const SIPS_TIMEOUT_MS = 30_000;
+const SIPS_MAX_BUFFER = 1024 * 1024;
+
 // HEIC and TIFF cannot be decoded by Chromium; macOS converts them to JPEG with sips.
+// The path may come from a project file, so only a regular file of a sane size is read (not /dev/zero or a FIFO).
 async function readImage(file) {
-  const raw = await fs.readFile(file);
+  const handle = await fs.open(file, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+  let raw;
+  try {
+    const st = await handle.stat();
+    if (!st.isFile()) throw new Error(`${path.basename(file)} is not a regular file`);
+    if (st.size > MAX_IMAGE_BYTES) throw new Error(`${path.basename(file)} is too large to open`);
+    raw = await handle.readFile();
+  } finally {
+    await handle.close();
+  }
   const kind = convertibleKind(raw);
   if (!kind) return raw;
   if (process.platform !== 'darwin') {
@@ -92,7 +106,9 @@ async function readImage(file) {
   }
   const tmp = path.join(os.tmpdir(), `collage-${randomUUID()}.jpg`);
   try {
-    await run('sips', ['-s', 'format', 'jpeg', file, '--out', tmp]);
+    await run('sips', ['-s', 'format', 'jpeg', file, '--out', tmp], { timeout: SIPS_TIMEOUT_MS, maxBuffer: SIPS_MAX_BUFFER });
+    const out = await fs.stat(tmp);
+    if (out.size > MAX_IMAGE_BYTES) throw new Error(`${path.basename(file)} is too large to open`);
     return await fs.readFile(tmp);
   } finally {
     await fs.rm(tmp, { force: true });
@@ -140,4 +156,4 @@ async function writeSidecar(projectPath, jsonText, items) {
   return JSON.stringify(project, null, 2);
 }
 
-module.exports = { atomicWrite, atomicCopy, readImage, exists, convertibleKind, writeSidecar };
+module.exports = { MAX_IMAGE_BYTES, atomicWrite, atomicCopy, readImage, exists, convertibleKind, writeSidecar };

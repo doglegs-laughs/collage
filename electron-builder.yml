@@ -8,6 +8,12 @@ files:
   - dist/renderer/**/*
   - package.json
 asar: true
+# Disable the Node.js escape hatches in the packaged Electron binary. Embedded asar integrity validation is left off.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  onlyLoadAppFromAsar: true
 publish: null
 asarUnpack: []
 mac:
