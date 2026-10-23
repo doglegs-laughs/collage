@@ -26,7 +26,13 @@ Get the latest build from [Releases](../../releases/latest):
 
 The builds are not code-signed, so the first launch needs one extra step:
 
-- **macOS:** unzip, move `Collage.app` to Applications, then run once in Terminal:
+- **macOS:** unzip and move `Collage.app` to Applications. The first time you open it, macOS blocks it because it isn't from an identified developer. To allow it (Apple's guide: [Open a Mac app from an unknown developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac)):
+  1. Double-click `Collage.app`. When macOS says it can't verify the app, click **Done** (not Move to Trash).
+  2. Open **Apple menu → System Settings → Privacy & Security** and scroll down to **Security**.
+  3. Next to *"Collage" was blocked to protect your Mac*, click **Open Anyway**. The button appears for about an hour after step 1.
+  4. Enter your password, then click **Open** in the confirmation.
+
+  After that, Collage opens normally. If macOS instead says the app "is damaged and can't be opened", run this once in Terminal, then open it again:
   ```
   xattr -dr com.apple.quarantine /Applications/Collage.app
   ```
