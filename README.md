@@ -20,7 +20,7 @@ It works without internet, and your photos never leave your computer. It's free.
 
 You need a Mac with Apple silicon (M1 or newer). To check: click the Apple menu (top-left corner of the screen) → **About This Mac**. If it says **Chip: Apple M1** (or M2, M3, M4…), you're set. Macs with Intel chips aren't supported.
 
-1. Go to the [latest release](../../releases/latest), scroll down to **Assets**, and click **Collage-mac-arm64.zip** to download it.
+1. Download **[Collage-mac-arm64.zip](https://github.com/doglegs-laughs/collage/releases/latest/download/Collage-mac-arm64.zip)** (always the latest version).
 2. Open your **Downloads** folder and double-click the zip file. A **Collage** app appears next to it. (Safari sometimes does this for you.)
 3. Drag **Collage** into your **Applications** folder.
 4. Double-click **Collage** to open it. The first time, your Mac stops it with a message that it can't check the app for malware. This is expected: the app isn't registered with Apple. Click **Done** (or **Cancel**), not Move to Trash.
@@ -53,7 +53,7 @@ Works on Windows 10 and 11.
 3. If a blue box says **"Windows protected your PC"**, click **More info**, then **Run anyway**. This appears because the app isn't registered with Microsoft.
 4. Click through the installer (**Next**, **Install**, **Finish**). Collage opens when you click Finish, and you'll find it in the Start menu afterwards.
 
-Can't install apps on your PC? Download **Collage-win-x64.zip** instead, right-click it, choose **Extract All**, and open **Collage.exe** in the extracted folder.
+Can't install apps on your PC? Download **[Collage-win-x64.zip](https://github.com/doglegs-laughs/collage/releases/latest/download/Collage-win-x64.zip)** instead, right-click it, choose **Extract All**, and open **Collage.exe** in the extracted folder.
 
 ### Updating
 
