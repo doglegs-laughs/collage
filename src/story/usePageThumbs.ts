@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getPreviewBitmap } from '../core/images';
-import { elementsVisibleOnPage, type Story } from './model';
-import { renderPage } from './render';
+import { getBitmapForSize } from '../core/images';
+import type { Story } from './model';
+import { renderPage, type GetBitmap } from './render';
+import { pageSignature } from './videoCache';
 
 export const THUMB_WIDTH = 200;
 const CACHE_MAX = 300;
 
-/** Everything that affects how page `i` looks, as a string (own elements + neighbours' overflow). */
+/** Everything that affects how page `i` looks (own elements + neighbours' overflow, only the photos it uses), as a string. */
 export function pageKey(story: Story, i: number): string {
-  const page = story.pages[i];
-  return JSON.stringify([story.aspect, page?.background, elementsVisibleOnPage(story, i), story.photos.map((p) => p.id)]);
+  return pageSignature(story, i, THUMB_WIDTH);
 }
 
 /** Rendered page thumbnails (data URLs), re-rendered debounced and cached by page content. */
@@ -29,7 +29,7 @@ export function usePageThumbs(story: Story): (string | null)[] {
         if (cancelled) return;
         if (cache.current.has(keys[i])) continue;
         try {
-          const canvas = (await renderPage(s, i, THUMB_WIDTH, getPreviewBitmap)) as HTMLCanvasElement;
+          const canvas = (await renderPage(s, i, THUMB_WIDTH, getBitmapForSize as GetBitmap, { closeAfterDraw: true })) as HTMLCanvasElement;
           if (cancelled) return;
           cache.current.set(keys[i], canvas.toDataURL('image/jpeg', 0.82));
           if (cache.current.size > CACHE_MAX) cache.current.delete(cache.current.keys().next().value as string);

@@ -24,6 +24,8 @@ type Props = {
   thumbs: (string | null)[];
   onSelectPage: (index: number) => void;
   onClose: () => void;
+  /** False while the Story tab is hidden: playback (and its music) pauses. */
+  visible?: boolean;
 };
 
 type Drag = ({ kind: 'clip' } & EdgeDrag) | { kind: 'audio'; offset: number };
@@ -51,7 +53,7 @@ function useStable<A extends unknown[], R>(fn: (...a: A) => R): (...a: A) => R {
 }
 
 /** The timeline editor that replaces the page strip: clips sized by duration, transitions between them, and the music with its beats underneath. */
-export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, onClose }: Props) {
+export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, onClose, visible = true }: Props) {
   const toast = useToast();
   const v = story.video;
   const root = useRef<HTMLElement>(null);
@@ -105,6 +107,8 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
 
   /* ----- playback ----- */
   const pb = usePlayback(tl.total, v.audioPath, shownOffset, loopSeconds);
+  const pausePlayback = pb.pause;
+  useEffect(() => { if (!visible) pausePlayback(); }, [visible, pausePlayback]);
   useEffect(() => {
     const el = scroller.current;
     if (!el || !pb.playing) return;

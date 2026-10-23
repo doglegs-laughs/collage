@@ -13,8 +13,10 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -26,9 +28,11 @@ jobs:
   build:
     runs-on: macos-14   # Apple Silicon
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -47,7 +51,20 @@ jobs:
       - name: Verify signature
         run: codesign --verify --deep --strict --verbose=2 release/mac-arm64/Collage.app
 
-      - uses: actions/upload-artifact@v4
+      # The fuses must be set, and the hardened app must still start: the userData folder only gets the
+      # app's own name once its packaged code has loaded.
+      - name: Check fuses and that the packaged app starts
+        run: |
+          npx --no-install electron-fuses read --app release/mac-arm64/Collage.app | tee fuses.txt
+          grep -q "RunAsNode is Disabled" fuses.txt
+          grep -q "OnlyLoadAppFromAsar is Enabled" fuses.txt
+          release/mac-arm64/Collage.app/Contents/MacOS/Collage & pid=$!
+          sleep 20
+          kill -0 $pid
+          kill $pid
+          test -d "$HOME/Library/Application Support/Collage"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Collage-mac-arm64
           path: release/Collage-mac-arm64.zip
@@ -57,9 +74,11 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -73,7 +92,16 @@ jobs:
           npm run build
           npx electron-builder --win --x64
 
-      - uses: actions/upload-artifact@v4
+      - name: Check that the packaged app starts
+        shell: pwsh
+        run: |
+          $p = Start-Process release/win-unpacked/Collage.exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { throw "Collage exited with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          if (-not (Test-Path "$env:APPDATA/Collage")) { throw "Collage did not start its app code" }
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Collage-windows-x64
           path: |
@@ -90,9 +118,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
 

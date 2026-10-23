@@ -37,3 +37,14 @@ describe('privileged renderer boundary', () => {
     expect(trustedSender(event, window, url)).toBe(false);
   });
 });
+
+describe('remote (UNC) paths', () => {
+  const { isRemotePath, assertLocalPath } = createRequire(import.meta.url)('../electron/security.cjs');
+  it('flags UNC and device-namespace paths but not local ones', () => {
+    for (const p of ['\\\\host\\share\\a.jpg', '//host/share/a.jpg', '\\\\?\\UNC\\host\\share\\a.jpg', '\\/host/a.jpg', '/\\host']) {
+      expect(isRemotePath(p)).toBe(true);
+      expect(() => assertLocalPath(p)).toThrow();
+    }
+    for (const p of ['/Users/me/a.jpg', 'C:\\Users\\me\\a.jpg', 'a.jpg', '/a//b.jpg', '', 42, undefined]) expect(isRemotePath(p)).toBe(false);
+  });
+});

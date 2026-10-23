@@ -115,3 +115,41 @@ it('does not resurrect a cleared autosave when a timed-out write resumes', async
   await new Promise((r) => setImmediate(r));
   expect(await store.read()).toBeNull();
 });
+
+const withPhotos = (...ids: string[]) => JSON.stringify({ title: 't', photos: ids.map((id) => ({ id })) });
+const item = (id: string) => ({ id, name: `${id}.jpg`, data: new Uint8Array([1]) });
+const stored = () => fs.readdir(path.join(dir, 'Autosave Photos')).catch(() => [] as string[]);
+
+it('deletes stored photos the saved project no longer references, and only those', async () => {
+  const store = createAutosaveStore(dir);
+  await store.write(withPhotos('a', 'b'), [item('a'), item('b')], {});
+  expect(await stored()).toEqual(['a-a.jpg', 'b-b.jpg']);
+  await store.write(withPhotos('b'), [], {});
+  expect(await stored()).toEqual(['b-b.jpg']);
+  const saved = JSON.parse((await store.read())!.json);
+  expect(saved.photos[0].path).toBe(path.join(dir, 'Autosave Photos', 'b-b.jpg'));
+  // A photo that comes back is written again rather than pointing at the deleted file.
+  await store.write(withPhotos('a', 'b'), [item('a')], {});
+  expect(await stored()).toEqual(['a-a.jpg', 'b-b.jpg']);
+});
+
+it('keeps photos referenced by path in the written project and never touches files outside the folder', async () => {
+  const store = createAutosaveStore(dir);
+  const outside = path.join(dir, 'other.jpg');
+  await fs.writeFile(outside, 'x');
+  await store.write(withPhotos('a'), [item('a')], {});
+  const keptPath = path.join(dir, 'Autosave Photos', 'a-a.jpg');
+  // A resumed project carries the stored path itself.
+  await store.write(JSON.stringify({ title: 't', photos: [{ id: 'a', path: keptPath }] }), [], {});
+  expect(await stored()).toEqual(['a-a.jpg']);
+  await store.write(withPhotos(), [], {});
+  expect(await stored()).toEqual([]);
+  expect(await fs.readFile(outside, 'utf8')).toBe('x');
+});
+
+it('removes the stored photos when the autosave is cleared', async () => {
+  const store = createAutosaveStore(dir);
+  await store.write(withPhotos('a'), [item('a')], {});
+  await store.clear();
+  expect(await stored()).toEqual([]);
+});

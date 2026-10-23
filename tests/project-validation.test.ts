@@ -61,3 +61,18 @@ describe('untrusted project validation', () => {
     expect(deserializeStory(serializeStory(s)).video.audioPath).toBe(audioPath);
   });
 });
+
+describe('remote paths in project files', () => {
+  it('drops UNC photo paths and music paths', () => {
+    const s = project();
+    (s as { photos: unknown[] }).photos = [
+      { id: 'p', name: 'p.jpg', width: 100, height: 100, path: '\\\\evil\\share\\p.jpg' },
+      { id: 'q', name: 'q.jpg', width: 100, height: 100, path: '//evil/q.jpg' },
+      { id: 'r', name: 'r.jpg', width: 100, height: 100, path: '/photos/r.jpg' },
+    ];
+    s.video.audioPath = '\\\\?\\UNC\\evil\\share\\song.mp3';
+    const parsed = deserializeStory(serializeStory(s));
+    expect(parsed.photos.map((p) => p.path)).toEqual([undefined, undefined, '/photos/r.jpg']);
+    expect(parsed.video.audioPath).toBeNull();
+  });
+});

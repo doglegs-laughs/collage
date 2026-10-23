@@ -124,10 +124,15 @@ export function StoryView() {
     st.mutate((s) => removePhotos(s, [id]));
   };
   // Undoing a remove or Clear all brings photos back into the story; keep the tray in step.
+  // Only photos that newly appear in the story are adopted: one removed from the library elsewhere (Borders, Collage layout)
+  // while the story still uses it must stay removed, however the story changes afterwards.
+  const seenPhotos = useRef<Story['photos']>([]);
   useEffect(() => {
-    const missing = story.photos.filter((p) => !lib.get(p.id));
+    const before = new Set(seenPhotos.current.map((p) => p.id));
+    seenPhotos.current = story.photos;
+    const missing = story.photos.filter((p) => !before.has(p.id) && !lib.get(p.id));
     if (missing.length) lib.adopt(missing);
-  }, [story.photos, lib.photos]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [story.photos]); // eslint-disable-line react-hooks/exhaustive-deps
   const clearTray = () => {
     const ids = lib.photos.map((p) => p.id);
     lib.clear();
@@ -230,7 +235,7 @@ export function StoryView() {
               onContextMenu={(id, x, y) => setMenu({ id, x, y })} onDropOut={dropOut}
             />
             {timelineOpen ? (
-              <TimelinePanel story={story} mutate={st.mutate} pageIndex={pageIndex} thumbs={thumbs} onSelectPage={ed.goTo} onClose={() => setTimelineOpen(false)} />
+              <TimelinePanel story={story} mutate={st.mutate} pageIndex={pageIndex} thumbs={thumbs} onSelectPage={ed.goTo} onClose={() => setTimelineOpen(false)} visible={visible} />
             ) : <PageStrip elementSelected={selection.length > 0} story={story} pageIndex={pageIndex} thumbs={thumbs} onSelect={ed.goTo} onMove={ed.pageMove} onToggleHidden={ed.toggleHidden} onMenu={(i, x, y) => setPageMenu({ i, x, y })} onAdd={ed.pageAdd} onDuplicate={() => ed.pageDuplicate()} onDelete={() => ed.pageDelete()} />}
           </div>
           <aside className="sidebar story-insp" data-testid="story-inspector">

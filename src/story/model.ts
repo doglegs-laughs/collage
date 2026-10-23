@@ -401,6 +401,9 @@ export function setPages(story: Story, pages: Page[]): Story {
 
 /* ---------- serialization ---------- */
 
+/** Windows UNC paths (`\\host\share`, `//host`) make Windows authenticate to a remote host; a project file must not point at one. Mirrors electron/security.cjs. */
+const isRemotePath = (file: string) => /^[\\/]{2}/.test(file);
+
 export type SerializedPhoto = { id: string; name: string; path?: string; width: number; height: number };
 export class StoryFormatError extends Error {}
 
@@ -469,7 +472,7 @@ export function deserializeStory(json: string): Story {
   const pageCount = raw.pages.length;
   const photos: Photo[] = raw.photos.map((p: unknown) => {
     if (!isObj(p)) return fail('Invalid photo entry');
-    return { id: identifier(p.id, 'photo id'), name: str(p.name, 'photo name'), ...(typeof p.path === 'string' ? { path: p.path } : {}), width: positive(p.width, 'photo width'), height: positive(p.height, 'photo height') };
+    return { id: identifier(p.id, 'photo id'), name: str(p.name, 'photo name'), ...(typeof p.path === 'string' && !isRemotePath(p.path) ? { path: p.path } : {}), width: positive(p.width, 'photo width'), height: positive(p.height, 'photo height') };
   });
   const pages: Page[] = raw.pages.map((p: unknown) => {
     if (!isObj(p) || !Array.isArray(p.elements)) return fail('Invalid page');
@@ -517,7 +520,7 @@ export function deserializeStory(json: string): Story {
       transition: v.transition === 'none' ? 'none' : 'crossfade',
       transitionSeconds: typeof v.transitionSeconds === 'number' && Number.isFinite(v.transitionSeconds) ? Math.min(1.5, Math.max(0.2, v.transitionSeconds)) : DEFAULT_VIDEO.transitionSeconds,
       kenBurns: v.kenBurns === true,
-      audioPath: typeof v.audioPath === 'string' && !v.audioPath.includes('\0') && !/^[a-z][a-z0-9+.-]*:/i.test(v.audioPath.replace(/^[A-Za-z]:[\\/]/, '')) ? v.audioPath : null,
+      audioPath: typeof v.audioPath === 'string' && !v.audioPath.includes('\0') && !/^[a-z][a-z0-9+.-]*:/i.test(v.audioPath.replace(/^[A-Za-z]:[\\/]/, '')) && !isRemotePath(v.audioPath) ? v.audioPath : null,
       fitToMusic: v.fitToMusic === true,
       syncToBeats: v.syncToBeats === true,
       beatsPerPage: [1, 2, 4, 8].includes(v.beatsPerPage as number) ? v.beatsPerPage as 1 | 2 | 4 | 8 : 4,

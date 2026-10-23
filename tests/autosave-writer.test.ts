@@ -106,3 +106,17 @@ it('preserves startup recovery, then saves the deletion of the last page', async
   await write();
   expect(autosaveWrite.mock.calls.map(([json]) => JSON.parse(json).pages.length)).toEqual([1, 0]);
 });
+
+it('sends a photo again after a save that did not include it', async () => {
+  const autosaveWrite = vi.fn().mockResolvedValue(true);
+  vi.stubGlobal('window', { api: { autosaveWrite } });
+  const photo = { id: 'a', name: 'photo.jpg', width: 1, height: 1, file: new File(['photo'], 'photo.jpg') };
+  let story = { ...emptyStory(), pages: [emptyPage()], photos: [photo] };
+  const write = createAutosaveWriter(() => ({ story, thumb: null }));
+  await write();
+  story = { ...story, photos: [] };
+  await write();
+  story = { ...story, photos: [photo] };
+  await write();
+  expect(autosaveWrite.mock.calls.map(([, sidecar]) => sidecar.length)).toEqual([1, 0, 1]);
+});
