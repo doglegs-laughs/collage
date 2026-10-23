@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, type BeatAnalysis } from '../api';
 import { computeTimeline, fitToMusicApplies, timelineOptions } from './timeline';
 import { Button, Segmented, Slider } from '../ui/Controls';
+import { useDialogFocus } from '../ui/useDialogFocus';
 import { useToast } from '../ui/Toast';
 import { Check, Field } from './fields';
 import { NO_MEMORY, pickTransition, setBeatSync, type SyncMemory, type SyncStep } from './videoDialogState';
@@ -9,6 +10,7 @@ import { evenPageSize, pageSize, visibleIndices, type Story, type VideoSettings 
 import type { ExportJob, ExportDone, VideoRequest } from './useExporter';
 
 function Modal({ title, onClose, children, testid }: { title: string; onClose: () => void; children: ReactNode; testid: string }) {
+  const focus = useDialogFocus<HTMLDivElement>();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -20,7 +22,7 @@ function Modal({ title, onClose, children, testid }: { title: string; onClose: (
   }, [onClose]);
   return (
     <div className="story-modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="story-modal" role="dialog" aria-label={title} data-testid={testid}>
+      <div className="story-modal" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} data-testid={testid} {...focus}>
         <h2 className="section-title">{title}</h2>
         {children}
       </div>

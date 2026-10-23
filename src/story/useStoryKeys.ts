@@ -29,6 +29,18 @@ const isTyping = (t: EventTarget | null): boolean => {
   return el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName);
 };
 
+/**
+ * The ⌘] / ⌘[ family. With Shift the browser reports key '}' / '{', so the physical key (`code`) decides;
+ * `key` is the fallback for events that carry no code.
+ */
+export function zMoveFor(e: Pick<KeyboardEvent, 'key' | 'code' | 'shiftKey'>): ZMove | null {
+  const right = e.code === 'BracketRight' || e.key === ']' || e.key === '}';
+  const left = e.code === 'BracketLeft' || e.key === '[' || e.key === '{';
+  if (right) return e.shiftKey ? 'front' : 'forward';
+  if (left) return e.shiftKey ? 'back' : 'backward';
+  return null;
+}
+
 /** Story shortcuts. Undo / redo are not here: Edit > Undo / Redo own those accelerators (see core/menuHistory).
  * Active only while the Story tab shows and focus is not in a text field. */
 export function useStoryKeys(actions: KeyActions) {
@@ -49,8 +61,7 @@ export function useStoryKeys(actions: KeyActions) {
         else if (k === 's') { done(); a.save(); }
         else if (k === 'o') { done(); a.open(); }
         else if (k === 'a') { done(); a.selectAll(); }
-        else if (key === ']') { done(); a.zOrder(e.shiftKey ? 'front' : 'forward'); }
-        else if (key === '[') { done(); a.zOrder(e.shiftKey ? 'back' : 'backward'); }
+        else if (zMoveFor(e)) { done(); a.zOrder(zMoveFor(e)!); }
         return;
       }
       if ((key === '[' || key === ']') && !a.hasSelection && !a.cropping) { done(); a.cycleLayout(key === ']' ? 1 : -1); return; }

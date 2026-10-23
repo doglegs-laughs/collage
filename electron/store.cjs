@@ -59,7 +59,27 @@ async function writeAutosave(dir, json, sidecar, known, meta, signal) {
   if (Array.isArray(project.photos)) for (const p of project.photos) if (!p.path && Object.hasOwn(paths, p.id)) p.path = paths[p.id];
   await atomicWrite(autosaveFile(dir), Buffer.from(JSON.stringify(project), 'utf8'), options);
   await atomicWrite(autosaveMeta(dir), Buffer.from(JSON.stringify({ ...(meta && typeof meta === 'object' ? meta : {}), savedAt: Date.now() }), 'utf8'), options);
-  return paths;
+  // Only after the new autosave is in place: photos the project no longer references are not needed any more.
+  signal?.throwIfAborted();
+  return pruneAutosavePhotos(dir, project, paths);
+}
+
+/** Deletes files in "Autosave Photos" that `project` does not reference and returns `paths` without the entries that were deleted. */
+async function pruneAutosavePhotos(dir, project, paths) {
+  const folder = path.resolve(photosDir(dir));
+  const keep = new Set();
+  if (Array.isArray(project.photos)) for (const p of project.photos) if (typeof p?.path === 'string') keep.add(path.resolve(p.path));
+  let names;
+  try { names = await fs.readdir(folder); } catch { return paths; }
+  for (const name of names) {
+    const file = path.join(folder, name);
+    if (!keep.has(file)) await fs.rm(file, { force: true, recursive: true }).catch(() => {});
+  }
+  const kept = {};
+  for (const id of Object.keys(paths)) {
+    if (keep.has(path.resolve(paths[id]))) Object.defineProperty(kept, id, { value: paths[id], enumerable: true, configurable: true, writable: true });
+  }
+  return kept;
 }
 async function readAutosave(dir) {
   try {

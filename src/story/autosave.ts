@@ -21,6 +21,9 @@ export function createAutosaveWriter(snapshot: () => { story: Story; thumb: stri
     try {
       const sidecar: SidecarPhoto[] = [];
       const ids: string[] = [];
+      // The desktop app deletes stored copies of photos a saved story no longer uses, so a photo that comes back must be sent again.
+      const used = new Set(story.photos.map((p) => p.id));
+      for (const id of sent) if (!used.has(id)) sent.delete(id);
       if (isDesktop()) {
         for (const p of story.photos) {
           if (p.path || !p.file || sent.has(p.id)) continue;

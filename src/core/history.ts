@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 
 const COALESCE_MS = 500;
+export const MAX_UNDO_STEPS = 200;
 
 type Stack<T> = { past: T[]; present: T; future: T[] };
 
@@ -18,6 +19,12 @@ export type History<T> = {
   reset: (next: T) => void;
 };
 
+/** `past` with `state` added, dropping the oldest entries beyond MAX_UNDO_STEPS. */
+export function pushPast<T>(past: T[], state: T, max = MAX_UNDO_STEPS): T[] {
+  const next = [...past, state];
+  return next.length > max ? next.slice(next.length - max) : next;
+}
+
 export function useHistory<T>(initial: T | (() => T)): History<T> {
   const [stack, setStack] = useState<Stack<T>>(() => ({
     past: [],
@@ -34,7 +41,7 @@ export function useHistory<T>(initial: T | (() => T)): History<T> {
     setStack((s) => {
       const present = resolve(next, s.present);
       if (Object.is(present, s.present)) return s;
-      return { past: merge ? s.past : [...s.past, s.present], present, future: [] };
+      return { past: merge ? s.past : pushPast(s.past, s.present), present, future: [] };
     });
   }, []);
 
@@ -49,7 +56,7 @@ export function useHistory<T>(initial: T | (() => T)): History<T> {
 
   const redo = useCallback(() => {
     last.current = null;
-    setStack((s) => (s.future.length ? { past: [...s.past, s.present], present: s.future[0], future: s.future.slice(1) } : s));
+    setStack((s) => (s.future.length ? { past: pushPast(s.past, s.present), present: s.future[0], future: s.future.slice(1) } : s));
   }, []);
 
   const reset = useCallback((next: T) => {

@@ -708,6 +708,32 @@ test('autosave: relaunch offers Continue and restores the story', async () => {
   await imagesLoaded();
 });
 
+test('removing a photo from the Borders tray is not undone by the Story that uses it', async () => {
+  test.setTimeout(180_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  await stubDialogs({ photos, folder, video: path.join(folder, 'x.mp4') });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(story().locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  await story().getByTestId('make-story').click();
+  await expect(story().getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+
+  await page.getByRole('tab', { name: 'Borders' }).click();
+  const borders = page.getByTestId('view-borders');
+  await expect(borders.locator('.tray-item')).toHaveCount(7);
+  await borders.getByRole('button', { name: 'Remove photo1.jpg' }).click();
+  await expect(borders.locator('.tray-item')).toHaveCount(6);
+  await page.waitForTimeout(500);
+  await expect(borders.locator('.tray-item')).toHaveCount(6);
+
+  await page.getByRole('tab', { name: 'Story' }).click();
+  await expect(story().locator('.tray-item')).toHaveCount(6);
+  // Undo still brings back a photo that the Story itself removed.
+  await story().getByRole('button', { name: 'Remove photo2.jpg' }).click();
+  await expect(story().locator('.tray-item')).toHaveCount(5);
+  await undo();
+  await expect(story().locator('.tray-item')).toHaveCount(6);
+});
+
 test('Open Recent lists saved stories and marks missing files', async () => {
   test.setTimeout(180_000);
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
