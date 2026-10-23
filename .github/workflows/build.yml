@@ -10,7 +10,32 @@ permissions:
   contents: read
 
 jobs:
+  # Documentation-only changes (README, docs/, other Markdown) skip the builds. A skipped job counts as passing
+  # for required checks, so such pull requests can still merge. Anything else, or an unknown base, builds.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          code=true
+          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            files=$(git diff --name-only "$BASE" "$GITHUB_SHA")
+            if [ -n "$files" ] && ! grep -qvE '^(docs/.*|[^/]*\.md)$' <<<"$files"; then code=false; fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "Builds needed: $code"
+
   e2e:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -26,6 +51,8 @@ jobs:
       - run: xvfb-run -a npm run e2e
 
   build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-14   # Apple Silicon
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -72,6 +99,8 @@ jobs:
 
 
   windows:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
