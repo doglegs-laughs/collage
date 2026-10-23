@@ -48,7 +48,7 @@ The app isn't damaged; your Mac is being cautious about apps from the internet. 
 
 Works on Windows 10 and 11.
 
-1. Go to the [latest release](../../releases/latest), scroll down to **Assets**, and click the file that starts with **Collage-Setup** and ends in **.exe**.
+1. Download **[Collage-Setup-x64.exe](https://github.com/doglegs-laughs/collage/releases/latest/download/Collage-Setup-x64.exe)** (always the latest version).
 2. Open the downloaded file.
 3. If a blue box says **"Windows protected your PC"**, click **More info**, then **Run anyway**. This appears because the app isn't registered with Microsoft.
 4. Click through the installer (**Next**, **Install**, **Finish**). Collage opens when you click Finish, and you'll find it in the Start menu afterwards.

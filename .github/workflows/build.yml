@@ -105,7 +105,7 @@ jobs:
         with:
           name: Collage-windows-x64
           path: |
-            release/Collage-Setup-*-x64.exe
+            release/Collage-Setup-x64.exe
             release/Collage-win-x64.zip
           if-no-files-found: error
 
@@ -138,5 +138,5 @@ jobs:
           fi
           gh release create "$tag" --target "$GITHUB_SHA" --title "Collage $version" --generate-notes \
             artifacts/Collage-mac-arm64/Collage-mac-arm64.zip \
-            artifacts/Collage-windows-x64/Collage-Setup-*-x64.exe \
+            artifacts/Collage-windows-x64/Collage-Setup-x64.exe \
             artifacts/Collage-windows-x64/Collage-win-x64.zip
