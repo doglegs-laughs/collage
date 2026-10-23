@@ -42,4 +42,4 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  artifactName: Collage-Setup-${version}-x64.${ext}
+  artifactName: Collage-Setup-x64.${ext}
