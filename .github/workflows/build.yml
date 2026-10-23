@@ -51,6 +51,19 @@ jobs:
       - name: Verify signature
         run: codesign --verify --deep --strict --verbose=2 release/mac-arm64/Collage.app
 
+      # The fuses must be set, and the hardened app must still start: the userData folder only gets the
+      # app's own name once its packaged code has loaded.
+      - name: Check fuses and that the packaged app starts
+        run: |
+          npx --no-install electron-fuses read --app release/mac-arm64/Collage.app | tee fuses.txt
+          grep -q "RunAsNode is Disabled" fuses.txt
+          grep -q "OnlyLoadAppFromAsar is Enabled" fuses.txt
+          release/mac-arm64/Collage.app/Contents/MacOS/Collage & pid=$!
+          sleep 20
+          kill -0 $pid
+          kill $pid
+          test -d "$HOME/Library/Application Support/Collage"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Collage-mac-arm64
@@ -78,6 +91,15 @@ jobs:
         run: |
           npm run build
           npx electron-builder --win --x64
+
+      - name: Check that the packaged app starts
+        shell: pwsh
+        run: |
+          $p = Start-Process release/win-unpacked/Collage.exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { throw "Collage exited with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          if (-not (Test-Path "$env:APPDATA/Collage")) { throw "Collage did not start its app code" }
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
