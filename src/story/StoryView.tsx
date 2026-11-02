@@ -37,7 +37,7 @@ export function StoryView() {
   const visible = useVisible(root);
   const toast = useToast();
   const lib = usePhotoLibrary();
-  const tray = useTraySelection(lib.photos);
+  const tray = useTraySelection(lib.photos, { keepLibraryOrder: true });
   const st = useStory();
   const { story, history } = st;
   const ed = useEditor(story, st.mutate);
