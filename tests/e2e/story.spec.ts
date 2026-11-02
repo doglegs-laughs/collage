@@ -871,14 +871,16 @@ test('Edit menu owns undo/redo, and Delete removes the page selected in the stri
   await expect(story().getByTestId('page-strip')).toBeFocused();
   await page.keyboard.press('Delete');
   await expect(label).toContainText(`of ${total - 1}`);
-  expect(await stripCount()).toBe(total - 1);
+  // Undo and redo go through the app menu, so wait for the strip to catch up rather than counting once.
+  const strip = story().getByTestId('strip-page');
+  await expect(strip).toHaveCount(total - 1);
   await expect(label).toContainText('Page 1 of');
   await undo();
-  expect(await stripCount()).toBe(total);
+  await expect(strip).toHaveCount(total);
   await redo();
-  expect(await stripCount()).toBe(total - 1);
+  await expect(strip).toHaveCount(total - 1);
   await undo();
-  expect(await stripCount()).toBe(total);
+  await expect(strip).toHaveCount(total);
 
   // Arrows move between pages while the strip is focused.
   await story().getByTestId('strip-page').nth(1).click();
