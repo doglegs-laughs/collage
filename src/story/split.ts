@@ -2,7 +2,7 @@ import { DEFAULT_CROP } from '../core/geometry';
 import type { Photo } from '../core/images';
 import { makeStory } from './autofill';
 import { applyLayout, FULL_EACH, layoutOptions, pageSeed, userTexts, type LayoutTarget } from './layouts';
-import { addPage, aspectRatio, groupOf, newId, type El, type Page, type PhotoEl, type Story } from './model';
+import { addPage, aspectRatio, groupOf, newId, removePage, updateElements, type El, type Page, type PhotoEl, type Story } from './model';
 import { getTemplate, orientationOf, type Template } from './templates';
 
 export type MoveOpts = {
@@ -46,6 +46,49 @@ function relayAll(story: Story, without: Story, start: number, end: number, srcI
   return { ...without, pages: [...without.pages.slice(0, start), ...pages, ...without.pages.slice(end)] };
 }
 
+/** Drop one photo element from its page and lay the rest of its spread group out again (user text stays). */
+function relayWithout(story: Story, srcIndex: number, elementId: string, seed: number): Story {
+  const { start, end } = groupOf(story, srcIndex);
+  const source = story.pages[srcIndex];
+  const groupPhotos = story.pages.slice(start, end).flatMap((p) => p.elements.filter((e): e is PhotoEl => e.kind === 'photo'));
+  const without: Story = {
+    ...story,
+    pages: story.pages.map((p, i) => (i === srcIndex ? { ...p, elements: p.elements.filter((e) => e.id !== elementId) } : p)),
+  };
+  const n = groupPhotos.length - 1;
+  let option: LayoutTarget | undefined;
+  if (n === 1) {
+    const left = groupPhotos.find((e) => e.id !== elementId)!;
+    const t = getTemplate(singleTemplateFor(story.style, story.photos.find((p) => p.id === left.photoId)));
+    if (t) option = optionOf(t);
+  } else {
+    const all = layoutOptions(without, srcIndex).filter((o) => o.arrangement !== FULL_EACH && o.pages === 1 && o.slots === n && !o.slotsDiffer);
+    const fam = familyOf(source.templateId);
+    option = (fam && all.find((o) => !o.slotsDiffer && o.slots === n && familyOf(o.arrangement) === fam)) || all[0];
+  }
+  return option ? applyLayout(without, srcIndex, option, { seed }).story : relayAll(story, without, start, end, srcIndex, seed);
+}
+
+/**
+ * Take a photo out of every page that shows it (it stays in the story's photo list). Each page is laid out again with
+ * its other photos; a page left without photos is deleted, unless it has its own text (a title), where the slot is emptied.
+ */
+export function removePhotoFromPages(story: Story, photoId: string): Story {
+  let s = story;
+  for (let guard = 0; guard < 1000; guard++) {
+    const i = s.pages.findIndex((p) => p.elements.some((e) => e.kind === 'photo' && e.photoId === photoId));
+    if (i < 0) return s;
+    const el = s.pages[i].elements.find((e): e is PhotoEl => e.kind === 'photo' && e.photoId === photoId)!;
+    const { start, end } = groupOf(s, i);
+    const group = s.pages.slice(start, end);
+    const others = group.flatMap((p) => p.elements).filter((e) => e.kind === 'photo' && e.photoId && e.id !== el.id).length;
+    if (others > 0) s = relayWithout(s, i, el.id, pageSeed(s, i));
+    else if (group.some((p) => p.elements.some((e) => e.kind === 'text' && e.text.trim()))) s = updateElements(s, i, [el.id], (e) => ({ ...e, photoId: null }) as El);
+    else s = removePage(s, i);
+  }
+  return s;
+}
+
 /** True when moveToOwnPage would do something for this element. */
 export function canMoveToOwnPage(story: Story, pageIndex: number, elementId: string): boolean {
   return moveToOwnPage(story, pageIndex, elementId) !== null;
@@ -76,22 +119,7 @@ export function moveToOwnPage(story: Story, pageIndex: number, elementId: string
   const source = story.pages[srcIndex];
 
   // 1. Remaining photos on the source page(s).
-  const without: Story = {
-    ...story,
-    pages: story.pages.map((p, i) => (i === srcIndex ? { ...p, elements: p.elements.filter((e) => e.id !== elementId) } : p)),
-  };
-  const n = groupPhotos.length - 1;
-  let option: LayoutTarget | undefined;
-  if (n === 1) {
-    const left = groupPhotos.find((e) => e.id !== elementId)!;
-    const t = getTemplate(singleTemplateFor(story.style, story.photos.find((p) => p.id === left.photoId)));
-    if (t) option = optionOf(t);
-  } else {
-    const all = layoutOptions(without, srcIndex).filter((o) => o.arrangement !== FULL_EACH && o.pages === 1 && o.slots === n && !o.slotsDiffer);
-    const fam = familyOf(source.templateId);
-    option = (fam && all.find((o) => !o.slotsDiffer && o.slots === n && familyOf(o.arrangement) === fam)) || all[0];
-  }
-  const relaid = option ? applyLayout(without, srcIndex, option, { seed }).story : relayAll(story, without, start, end, srcIndex, seed);
+  const relaid = relayWithout(story, srcIndex, elementId, seed);
   const delta = relaid.pages.length - story.pages.length;
 
   // 2. The new page.

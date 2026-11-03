@@ -9,7 +9,7 @@ import { useToast } from '../ui/Toast';
 import { useVisible } from '../collage/useVisible';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { DEFAULT_CROP } from '../core/geometry';
-import { moveToOwnPage } from './split';
+import { moveToOwnPage, removePhotoFromPages } from './split';
 import { ElementInspector } from './ElementInspector';
 import { ExportStatus, ImagesDialog, VideoDialog } from './ExportDialogs';
 import { LayoutControl } from './LayoutControl';
@@ -119,6 +119,11 @@ export function StoryView() {
     const [photo] = await lib.pick();
     if (photo) ed.replaceSelectedPhoto(photo);
   };
+  // Deselecting a photo the story shows takes it off those pages (one undo step); selecting only marks it for Make story.
+  const toggleTray = (id: string) => {
+    if (tray.selected.includes(id) && photoIdsInUse(st.live.current).has(id)) st.mutate((s) => removePhotoFromPages(s, id));
+    tray.toggle(id);
+  };
   const removeFromTray = (id: string) => {
     lib.remove(id);
     st.mutate((s) => removePhotos(s, [id]));
@@ -202,7 +207,7 @@ export function StoryView() {
       <aside className="sidebar story-tray">
         <div className="section">
           <PhotoTray
-            photos={lib.photos} selected={tray.selected} onToggle={tray.toggle} onRemove={removeFromTray} onClearAll={clearTray}
+            photos={lib.photos} selected={tray.selected} onToggle={toggleTray} onRemove={removeFromTray} onClearAll={clearTray}
             clearNote="Photos used in the story become empty slots."
             onImport={() => void lib.pick()} onDropFiles={(f) => void lib.addFiles(f)} onSelectAll={tray.all} onSelectNone={tray.none}
           />

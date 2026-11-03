@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { moveToOwnPage } from '../src/story/split';
+import { moveToOwnPage, removePhotoFromPages } from '../src/story/split';
 import { getTemplate } from '../src/story/templates';
 import { defaultTextEl, emptyStory, type Page, type PhotoEl, type Story } from '../src/story/model';
 import { photoIdsOf } from './story-helpers';
@@ -114,5 +114,34 @@ describe('moveToOwnPage without an exact template', () => {
     expect(r.story.pages[0].elements.some((e) => e.kind === 'text' && e.text === 'Keep me')).toBe(true);
     expect(r.story.pages[r.pageIndex].elements.filter((e) => e.kind === 'photo')).toHaveLength(1);
     expect(r.pageIndex).toBe(r.story.pages.length - 1);
+  });
+});
+
+describe('removePhotoFromPages', () => {
+  it('lays the page out again with the other photos', () => {
+    const s = storyWith('stack-3', [L('a'), L('b'), L('c')]);
+    const r = removePhotoFromPages(s, 'b');
+    expect(r.pages).toHaveLength(1);
+    expect(r.pages[0].templateId).toBe('stack-2');
+    expect(all(r)).toEqual(['a', 'c']);
+    expect(r.photos.map((p) => p.id)).toEqual(['a', 'b', 'c']);
+  });
+  it('deletes a page left without photos, and every page that showed the photo is updated', () => {
+    const single = storyWith('inset-single', [L('a')]).pages[0];
+    const s = storyWith('stack-2', [L('a'), L('b')], [{ ...single, id: 'solo' }]);
+    const r = removePhotoFromPages(s, 'a');
+    expect(r.pages.map((p) => p.id)).toEqual(['pg0']);
+    expect(all(r)).toEqual(['b']);
+  });
+  it('keeps a page with a title, emptying the slot', () => {
+    const s = storyWith('inset-single', [L('a')]);
+    s.pages[0].elements.push(defaultTextEl({ text: 'Title', role: 'title' }));
+    const r = removePhotoFromPages(s, 'a');
+    expect(r.pages).toHaveLength(1);
+    expect(firstPhoto(r).photoId).toBeNull();
+  });
+  it('leaves a story that does not show the photo unchanged', () => {
+    const s = storyWith('stack-2', [L('a'), L('b')]);
+    expect(removePhotoFromPages(s, 'z')).toBe(s);
   });
 });
