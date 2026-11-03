@@ -63,7 +63,7 @@ Download the new version the same way and replace the old app. Your stories are 
 
 <p><img src="docs/screenshots/story-start.jpg" alt="Make story start screen" width="900"></p>
 
-1. Click the **Story** tab, then **Add photos** (or drag photos onto the window). Click a thumbnail to include or exclude it. Double-click a thumbnail (or press Space) for a large preview.
+1. Click the **Story** tab, then **Add photos** (or drag photos onto the window). Click a thumbnail to include or exclude it. Excluding a photo after the story is made takes it off its page, and the other photos on that page are rearranged (⌘Z undoes it). Double-click a thumbnail (or press Space) for a large preview.
 2. Pick **Clean** or **Stylized**, optionally type a title and subtitle, and choose a page shape (4:5 suits Instagram).
 3. Click **Make story**. **Shuffle** regenerates the whole story with a different arrangement.
 

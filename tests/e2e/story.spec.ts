@@ -898,3 +898,25 @@ test('Edit menu owns undo/redo, and Delete removes the page selected in the stri
   expect(await stripCount()).toBe(total);
   await expect(story().getByTestId('selection-box')).toHaveCount(0);
 });
+
+test('deselecting a photo in the tray takes it off its page; undo brings it back', async () => {
+  test.setTimeout(180_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  await stubDialogs({ photos, folder, video: path.join(folder, 'x.mp4') });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(story().locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  // Three landscapes (photos 1, 3 and 7) make one stack page.
+  await story().getByRole('button', { name: 'None', exact: true }).click();
+  for (const i of [0, 2, 6]) await story().locator('.tray-pick').nth(i).click();
+  await story().getByTestId('make-story').click();
+  await expect(story().getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  const photoEls = story().locator('.story-page [data-testid="story-el-photo"]:not([data-ghost])');
+  await expect(photoEls).toHaveCount(3);
+
+  await story().locator('.tray-pick').nth(2).click();
+  await expect(photoEls).toHaveCount(2);
+  await expect(story().getByTestId('strip-page')).toHaveCount(1);
+  await expect(story().locator('.section-note').first()).toHaveText('2 of 7 selected');
+  await undo();
+  await expect(photoEls).toHaveCount(3);
+});
