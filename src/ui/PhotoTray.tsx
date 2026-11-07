@@ -111,6 +111,14 @@ function Thumb({ photo, order, onToggle, onRemove, onPreview, hoverEnabled }: {
   );
 }
 
+const IDLE_MS = 2000;
+
+function toggleFullscreen() {
+  const done = () => {};
+  if (document.fullscreenElement) document.exitFullscreen().catch(done);
+  else document.documentElement.requestFullscreen().catch(done);
+}
+
 type LightboxProps = {
   photos: Photo[];
   index: number;
@@ -119,9 +127,11 @@ type LightboxProps = {
   onRemove: (id: string) => void;
   onGo: (index: number) => void;
   onClose: () => void;
+  /** Review mode: opened from the Review button, and closes when full screen is left. */
+  review: boolean;
 };
 
-function Lightbox({ photos, index, selected, onToggle, onRemove, onGo, onClose }: LightboxProps) {
+function Lightbox({ photos, index, selected, onToggle, onRemove, onGo, onClose, review }: LightboxProps) {
   const photo = photos[index];
   const root = useRef<HTMLDivElement>(null);
   const thumb = usePhotoThumb(photo);
@@ -130,15 +140,73 @@ function Lightbox({ photos, index, selected, onToggle, onRemove, onGo, onClose }
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const fullReady = !!full && loadedFor === full;
 
+  const [fs, setFs] = useState(() => !!document.fullscreenElement);
+  const [idle, setIdle] = useState(false);
+  const [ended, setEnded] = useState(false);
+  const idleTimer = useRef<number | undefined>(undefined);
+  const preloaded = useRef<HTMLImageElement[]>([]);
+  const last = index === photos.length - 1;
+  const kept = selected.length;
+
   useEffect(() => { root.current?.focus(); }, []);
+  useEffect(() => { setEnded(false); }, [index]);
+
+  // Full screen follows the document: leaving it (Esc, F, the OS) ends a review but only updates a normal preview.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const onChange = () => {
+      const now = !!document.fullscreenElement;
+      setFs(now);
+      if (!now && review) onCloseRef.current();
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    };
+  }, [review]);
+
+  // In full screen the bar and arrows fade out after a pause; any mouse move or key brings them back.
+  const wake = useCallback(() => {
+    setIdle(false);
+    window.clearTimeout(idleTimer.current);
+    if (fs) idleTimer.current = window.setTimeout(() => setIdle(true), IDLE_MS);
+  }, [fs]);
+  useEffect(() => { wake(); return () => window.clearTimeout(idleTimer.current); }, [wake]);
+
+  // Warm the neighbours. getObjectUrl caches one URL per photo (revoked by releasePhoto), so this creates none of its own.
+  useEffect(() => {
+    let live = true;
+    preloaded.current = [];
+    for (const p of [photos[index + 1], photos[index - 1]]) {
+      if (!p) continue;
+      getObjectUrl(p).then((u) => {
+        if (!live) return;
+        const img = new Image();
+        img.src = u;
+        preloaded.current.push(img);
+      }, () => {});
+    }
+    return () => { live = false; };
+  }, [photos, index]);
 
   const go = (d: number) => { const n = index + d; if (n >= 0 && n < photos.length) onGo(n); };
+  /** Keep or reject (only changes the selection when it differs), then move on; stays put on the last photo. */
+  const decide = (keep: boolean) => {
+    if (keep !== included) onToggle(photo.id);
+    if (last) setEnded(true); else go(1);
+  };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const onButton = (e.target as HTMLElement).tagName === 'BUTTON';
+    wake();
     switch (e.key) {
       case 'Escape': case ' ': e.preventDefault(); e.stopPropagation(); onClose(); break;
-      case 'ArrowLeft': e.preventDefault(); go(-1); break;
-      case 'ArrowRight': e.preventDefault(); go(1); break;
+      case 'ArrowLeft': e.preventDefault(); e.stopPropagation(); go(-1); break;
+      case 'ArrowRight': e.preventDefault(); e.stopPropagation(); go(1); break;
+      case 'k': case 'K': case 'ArrowUp': e.preventDefault(); e.stopPropagation(); decide(true); break;
+      case 'x': case 'X': case 'ArrowDown': e.preventDefault(); e.stopPropagation(); decide(false); break;
+      case 'f': case 'F': if (!e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); toggleFullscreen(); } break;
       case 'i': case 'I': e.preventDefault(); onToggle(photo.id); break;
       case 'Enter': if (!onButton) { e.preventDefault(); onToggle(photo.id); } break;
       case 'Tab': {
@@ -155,7 +223,8 @@ function Lightbox({ photos, index, selected, onToggle, onRemove, onGo, onClose }
   };
 
   return createPortal(
-    <div className="lightbox" role="dialog" aria-modal="true" aria-label={`Preview of ${photo.name}`} ref={root} tabIndex={-1} onKeyDown={onKeyDown} data-testid="photo-preview">
+    <div className={`lightbox ${fs ? 'fs' : ''} ${fs && idle ? 'idle' : ''}`} role="dialog" aria-modal="true" aria-label={`${review ? 'Review' : 'Preview'} of ${photo.name}`} ref={root} tabIndex={-1} onKeyDown={onKeyDown} onMouseMove={wake}
+      data-testid="photo-preview" data-review={review} data-fullscreen={fs}>
       <div className="lightbox-backdrop" onMouseDown={onClose} />
       <div className="lightbox-stage">
         {thumb && !fullReady && <img className="lightbox-img lightbox-low" src={thumb} alt="" draggable={false} />}
@@ -168,12 +237,17 @@ function Lightbox({ photos, index, selected, onToggle, onRemove, onGo, onClose }
           <strong title={photo.name}>{photo.name}</strong>
           <span>{photo.width} × {photo.height} px</span>
           <span className="lightbox-pos" data-testid="preview-position">{index + 1} / {photos.length}</span>
+          <span className="lightbox-counts" data-testid="review-counts">{kept} kept · {photos.length - kept} rejected</span>
+          {ended && <span className="lightbox-end" role="status">End of photos — Esc to finish</span>}
         </div>
         <div className="lightbox-actions">
+          <button type="button" className={`lightbox-keep ${included ? 'on' : ''}`} aria-pressed={included} title="Keep and go to next (K or ↑)" onClick={() => decide(true)}>Keep</button>
+          <button type="button" className={`lightbox-reject ${included ? '' : 'on'}`} aria-pressed={!included} title="Reject and go to next (X or ↓)" onClick={() => decide(false)}>Reject</button>
           <button type="button" className={`lightbox-include ${included ? 'on' : ''}`} role="checkbox" aria-checked={included} onClick={() => onToggle(photo.id)}>
             <span className="lightbox-box" aria-hidden="true">{included ? '✓' : ''}</span>
             {included ? 'Included' : 'Not included'}
           </button>
+          <button type="button" className="lightbox-fs" aria-pressed={fs} title="Full screen (F)" onClick={toggleFullscreen}>Full screen</button>
           <button type="button" className="lightbox-remove" onClick={() => onRemove(photo.id)}>Remove from library</button>
           <button type="button" className="lightbox-close" aria-label="Close preview" onClick={onClose}>×</button>
         </div>
@@ -204,16 +278,25 @@ type Props = {
 export function PhotoTray({ photos, selected, onToggle, onRemove, onImport, onDropFiles, onSelectAll, onSelectNone, onClearAll, clearNote, title = 'Photos', className = '' }: Props) {
   const [over, setOver] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [review, setReview] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const restoreFocus = useRef<string | null>(null);
   const section = useRef<HTMLElement>(null);
   const previewIndex = previewId ? photos.findIndex((p) => p.id === previewId) : -1;
   const open = previewIndex >= 0;
   useEffect(() => { if (previewId && previewIndex < 0) setPreviewId(null); }, [previewId, previewIndex]);
+  useEffect(() => { if (!previewId) setReview(false); }, [previewId]);
   useEffect(() => { if (photos.length === 0) setConfirmClear(false); }, [photos.length]);
   const closePreview = () => {
     restoreFocus.current = previewId;
     setPreviewId(null);
+  };
+  const openPreview = (id: string) => { setReview(false); setPreviewId(id); };
+  const startReview = () => {
+    if (!photos.length) return;
+    setReview(true);
+    setPreviewId(photos[0].id);
+    document.documentElement.requestFullscreen().catch(() => {});
   };
   useEffect(() => {
     if (previewId || !restoreFocus.current) return;
@@ -248,8 +331,9 @@ export function PhotoTray({ photos, selected, onToggle, onRemove, onImport, onDr
         <span className="section-note">{selected.length} of {photos.length} selected</span>
       </div>
       <Button variant="soft" block onClick={onImport}>Add photos</Button>
-      {photos.length > 0 && !confirmClear && (onSelectAll || onSelectNone || onClearAll) && (
+      {photos.length > 0 && !confirmClear && (
         <div className="tray-actions">
+          <button type="button" className="link" title="Go through the photos full screen to keep or reject them" onClick={startReview}>Review</button>
           {onSelectAll && <button type="button" className="link" onClick={onSelectAll}>Select all</button>}
           {onSelectNone && <button type="button" className="link" onClick={onSelectNone}>None</button>}
           {onClearAll && <button type="button" className="link danger tray-clear" onClick={() => setConfirmClear(true)}>Clear all</button>}
@@ -269,13 +353,13 @@ export function PhotoTray({ photos, selected, onToggle, onRemove, onImport, onDr
       ) : (
         <div className="tray-grid">
           {photos.map((p) => (
-            <Thumb key={p.id} photo={p} order={selected.indexOf(p.id) + 1} onToggle={() => onToggle(p.id)} onRemove={() => onRemove(p.id)} onPreview={() => setPreviewId(p.id)} hoverEnabled={!open} />
+            <Thumb key={p.id} photo={p} order={selected.indexOf(p.id) + 1} onToggle={() => onToggle(p.id)} onRemove={() => onRemove(p.id)} onPreview={() => openPreview(p.id)} hoverEnabled={!open} />
           ))}
         </div>
       )}
       {open && (
         <Lightbox photos={photos} index={previewIndex} selected={selected} onToggle={onToggle} onRemove={removeFromPreview}
-          onGo={(i) => setPreviewId(photos[i].id)} onClose={closePreview} />
+          onGo={(i) => setPreviewId(photos[i].id)} onClose={closePreview} review={review} />
       )}
     </section>
   );

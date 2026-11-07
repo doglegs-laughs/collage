@@ -63,7 +63,7 @@ Download the new version the same way and replace the old app. Your stories are 
 
 <p><img src="docs/screenshots/story-start.jpg" alt="Make story start screen" width="900"></p>
 
-1. Click the **Story** tab, then **Add photos** (or drag photos onto the window). Click a thumbnail to include or exclude it. Excluding a photo after the story is made takes it off its page, and the other photos on that page are rearranged (⌘Z undoes it). Double-click a thumbnail (or press Space) for a large preview.
+1. Click the **Story** tab, then **Add photos** (or drag photos onto the window). Click a thumbnail to include or exclude it. Excluding a photo after the story is made takes it off its page, and the other photos on that page are rearranged (⌘Z undoes it). Double-click a thumbnail (or press Space) for a large preview. To decide which photos to keep, click **Review** to go through them full screen: **K** or **↑** keeps a photo, **X** or **↓** rejects it (it stays in your library, just not included), and **Esc** finishes.
 2. Pick **Clean** or **Stylized**, optionally type a title and subtitle, and choose a page shape (4:5 suits Instagram).
 3. Click **Make story**. **Shuffle** regenerates the whole story with a different arrangement.
 
@@ -125,7 +125,7 @@ Every change is one undo step and is saved with the story. With no edits, export
 
 <p><img src="docs/screenshots/borders.jpg" alt="Borders tab with a print mat finish" width="900"></p>
 
-Pick a finish (**White border, Black border, Print mat, Framed, Polaroid**), the border size, colour, canvas shape (Original, 1:1, 4:5, 9:16) and output size, then **Export all** to a folder. Each photo is saved as `<name>-border.jpg`, and existing files are never overwritten.
+Pick a finish (**White border, Black border, Print mat, Framed, Polaroid**), the border size, colour, canvas shape (Original, 1:1, 4:5, 9:16) and output size, then **Export all** to a folder. Each photo is saved as `<name>-border.jpg`, and existing files are never overwritten. Use **Review** above the photos to go through them full screen and keep or reject each one.
 
 ## Shortcuts
 
@@ -144,6 +144,9 @@ Pick a finish (**White border, Black border, Print mat, Framed, Polaroid**), the
 | } / { | Next / previous finish |
 | Space | Large preview of the focused thumbnail |
 | Esc | Deselect, or leave box-moving mode |
+| K or ↑ / X or ↓ | In a photo preview or Review: keep / reject and go to the next photo |
+| F | In a photo preview: toggle full screen |
+| I or Enter | In a photo preview: include or exclude the photo |
 
 ## For developers
 

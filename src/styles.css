@@ -305,6 +305,20 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 .lightbox-box { width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid currentColor; display: grid; place-items: center; font-size: 11px; line-height: 1; }
 .lightbox-actions .lightbox-remove:hover { background: var(--danger); }
 .lightbox-actions .lightbox-close { width: 34px; padding: 0; justify-content: center; font-size: 20px; }
+.lightbox-actions .lightbox-keep.on { background: var(--accent); }
+.lightbox-actions .lightbox-reject { box-shadow: inset 0 0 0 1.5px transparent; }
+.lightbox-actions .lightbox-reject.on { background: transparent; color: #ff8d8d; box-shadow: inset 0 0 0 1.5px #ff8d8d; }
+.lightbox-actions .lightbox-fs[aria-pressed="true"] { background: #ffffff40; }
+.lightbox-counts { color: #cfd5e2; }
+.lightbox-end { color: #ffd479; font-weight: 600; }
+/* Full screen: black, photo as large as possible; bar and arrows fade out when the mouse rests. */
+.lightbox.fs .lightbox-backdrop { background: #000; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.lightbox.fs .lightbox-stage { inset: 0; }
+.lightbox.fs .lightbox-img { border-radius: 0; box-shadow: none; }
+.lightbox.fs .lightbox-bar, .lightbox.fs .lightbox-nav { transition: opacity .4s; }
+.lightbox.fs.idle { cursor: none; }
+.lightbox.fs.idle .lightbox-bar, .lightbox.fs.idle .lightbox-nav { opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .lightbox, .lightbox-stage { animation: none; } .lightbox-bar, .lightbox-nav, .lightbox-img { transition: none !important; } }
 .lightbox :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 @keyframes pv-fade { from { opacity: 0; } }
 @keyframes pv-in { from { opacity: 0; transform: scale(.96); } }
