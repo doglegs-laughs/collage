@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Photo } from '../core/images';
 import { usePhotoLibrary } from '../core/library';
 import { usePasteImages } from '../core/usePasteImages';
+import { useWindowFileDrop } from '../core/useWindowFileDrop';
+import { DropOverlay } from '../ui/DropOverlay';
 import { api, type AutosaveFile, type RecentStory } from '../api';
 import { PhotoTray } from '../ui/PhotoTray';
 import { Button } from '../ui/Controls';
@@ -50,6 +52,7 @@ export function StoryView() {
   const project = useProject(getStory, lib, useCallback((s: Story) => { st.load(s); ed.goTo(0); }, [st.load, ed.goTo]), { isDirty, onSaved: st.markSaved }); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api.setDirty(st.dirty); }, [st.dirty]);
   usePasteImages(visible, (files) => void lib.addFiles(files));
+  const fileDrag = useWindowFileDrop(visible, (files) => void lib.addFiles(files));
   useAutosave(story, thumbs[0] ?? null);
   const [resume, setResume] = useState<AutosaveFile | null>(null);
   const [recents, setRecents] = useState<RecentStory[]>([]);
@@ -204,6 +207,7 @@ export function StoryView() {
 
   return (
     <div ref={root} className={`story-view ${hasPages ? '' : 'empty'}`} data-testid="view-story">
+      <DropOverlay show={fileDrag} />
       <aside className="sidebar story-tray">
         <div className="section">
           <PhotoTray

@@ -27,6 +27,21 @@ const menu = async (id: 'undo' | 'redo') => {
 const undo = () => menu('undo');
 const redo = () => menu('redo');
 
+/** Fire a synthetic external file drag (dragenter, dragover, optionally drop) at the first element matching `selector`. */
+async function dragFiles(page: Page, selector: string, file: { name: string; type: string; b64: string }, phase: 'over' | 'drop') {
+  await page.evaluate(({ selector, file, phase }) => {
+    const bytes = Uint8Array.from(atob(file.b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], file.name, { type: file.type }));
+    const el = document.querySelector(selector)!;
+    const fire = (type: string) => el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }));
+    fire('dragenter');
+    fire('dragover');
+    if (phase === 'drop') fire('drop');
+  }, { selector, file, phase });
+}
+const asDroppable = (p: string, name = 'dropped.jpg', type = 'image/jpeg') => ({ name, type, b64: fs.readFileSync(p).toString('base64') });
+
 test.beforeAll(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'story-e2e-'));
   // Portraits, landscapes, a square and one 3:1 panorama.
@@ -151,6 +166,7 @@ test('make a story in one click, edit, undo, export images and video', async () 
   await page.getByTestId('video-go').click();
   await expect.poll(() => fs.existsSync(video) && fs.statSync(video).size > 1000, { timeout: 300_000 }).toBe(true);
   await expect(page.getByTestId('export-status')).toContainText('Video saved', { timeout: 60_000 });
+  await expect(page.getByTestId('export-reveal')).toHaveText('Show in folder');
   // Nothing may sit on top of the Reveal link (a success toast used to cover it).
   await expect(page.locator('.toast.show')).toHaveCount(0);
   await page.getByTestId('export-reveal').click({ trial: true });
@@ -919,4 +935,17 @@ test('deselecting a photo in the tray takes it off its page; undo brings it back
   await expect(story().locator('.section-note').first()).toHaveText('2 of 7 selected');
   await undo();
   await expect(photoEls).toHaveCount(3);
+});
+
+test('photos dropped anywhere on the window are added; non-photos are refused', async () => {
+  const area = '.topbar'; // anywhere outside the tray
+  await dragFiles(page, area, asDroppable(photos[0]), 'over');
+  await expect(page.locator('.drop-overlay')).toHaveText('Drop photos to add them');
+  await dragFiles(page, area, asDroppable(photos[0]), 'drop');
+  await expect(page.locator('.drop-overlay')).toHaveCount(0);
+  await expect(story().locator('.tray-item')).toHaveCount(1, { timeout: 30_000 });
+
+  await dragFiles(page, area, { name: 'notes.txt', type: 'text/plain', b64: btoa('hi') }, 'drop');
+  await expect(page.locator('.toast.error')).toHaveText('Only photos can be added');
+  await expect(story().locator('.tray-item')).toHaveCount(1);
 });

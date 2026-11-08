@@ -59,6 +59,10 @@ Can't install apps on your PC? Download **[Collage-win-x64.zip](https://github.c
 
 Download the new version the same way and replace the old app. Your stories are kept.
 
+## Adding photos and saving
+
+In every tab you can drag photos from Finder anywhere onto the window to add them, or paste them. After anything is saved, a **Show in Finder** link (Windows: **Show in File Explorer**) takes you straight to the file.
+
 ## Story
 
 <p><img src="docs/screenshots/story-start.jpg" alt="Make story start screen" width="900"></p>

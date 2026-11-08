@@ -3,7 +3,11 @@ import { api } from '../api';
 import { cellSizeFor, defaultBorder, outputSize, type Size } from '../core/geometry';
 import { isImageFile } from '../core/images';
 import { usePhotoLibrary } from '../core/library';
+import { usePasteImages } from '../core/usePasteImages';
+import { useWindowFileDrop } from '../core/useWindowFileDrop';
 import { recentToFile, removeRecent, saveRecent, touchRecent, type RecentItem } from '../core/recents';
+import { DropOverlay } from '../ui/DropOverlay';
+import { revealLabel } from '../ui/revealLabel';
 import { Segmented } from '../ui/Controls';
 import { useToast } from '../ui/Toast';
 import { LayoutMode } from './LayoutMode';
@@ -16,8 +20,6 @@ import { useCollage } from './useCollage';
 import { useRecents } from './useRecents';
 import { useVisible } from './useVisible';
 
-const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
-
 /** The grid collage (the original Collage mode). Mounted for the life of the app, so `active` switches off its global drop / paste / top-bar actions while Layout mode shows. */
 function GridView({ active }: { active: boolean }) {
   const root = useRef<HTMLDivElement>(null);
@@ -29,7 +31,6 @@ function GridView({ active }: { active: boolean }) {
   const collage = useCollage();
   const { rows, columns, shape, slots } = collage.state;
   const recents = useRecents();
-  const [dropping, setDropping] = useState(false);
   const [busy, setBusy] = useState<null | 'export' | 'story'>(null);
   const [progress, setProgress] = useState('');
 
@@ -66,36 +67,8 @@ function GridView({ active }: { active: boolean }) {
   addRef.current = addToEmpty;
 
   // Global drop and paste add into empty boxes, but only while this tab is showing.
-  useEffect(() => {
-    if (!visible) return;
-    let depth = 0;
-    const enter = (e: DragEvent) => { if (hasFiles(e)) { depth++; setDropping(true); } };
-    const leave = (e: DragEvent) => { if (hasFiles(e) && --depth <= 0) { depth = 0; setDropping(false); } };
-    const over = (e: DragEvent) => e.preventDefault();
-    const drop = (e: DragEvent) => {
-      e.preventDefault();
-      depth = 0;
-      setDropping(false);
-      void addRef.current([...(e.dataTransfer?.files ?? [])]);
-    };
-    const paste = (e: ClipboardEvent) => {
-      const files = [...(e.clipboardData?.files ?? [])].filter(isImageFile);
-      if (files.length) { e.preventDefault(); void addRef.current(files); }
-    };
-    window.addEventListener('dragenter', enter);
-    window.addEventListener('dragleave', leave);
-    window.addEventListener('dragover', over);
-    window.addEventListener('drop', drop);
-    document.addEventListener('paste', paste);
-    return () => {
-      window.removeEventListener('dragenter', enter);
-      window.removeEventListener('dragleave', leave);
-      window.removeEventListener('dragover', over);
-      window.removeEventListener('drop', drop);
-      document.removeEventListener('paste', paste);
-      setDropping(false);
-    };
-  }, [visible]);
+  const fileDrag = useWindowFileDrop(visible, (files) => void addRef.current(files));
+  usePasteImages(visible, (files) => void addRef.current(files));
 
   const onInputChange = () => {
     const files = [...(input.current?.files ?? [])];
@@ -156,7 +129,7 @@ function GridView({ active }: { active: boolean }) {
     const saved = await api.saveFile({ defaultName: collageFileName(), filters: [{ name: 'JPEG image', extensions: ['jpg', 'jpeg'] }], data: r.data });
     if (!saved) return;
     const name = saved.split(/[\\/]/).pop();
-    toast(r.scaled ? `Saved at ${r.width} × ${r.height}, reduced to fit this computer’s limit.` : `Saved ${name}`, 'success');
+    toast(r.scaled ? `Saved at ${r.width} × ${r.height}, reduced to fit this computer’s limit.` : `Saved ${name}`, 'success', { label: revealLabel(), onClick: () => api.revealInFolder(saved) });
   });
   const doSendToStory = () => run('story', async () => {
     const r = await render();
@@ -167,6 +140,7 @@ function GridView({ active }: { active: boolean }) {
 
   return (
     <div ref={root} className="workspace" data-testid="view-collage">
+      <DropOverlay show={fileDrag} />
       <input ref={input} type="file" accept="image/*" multiple hidden data-testid="collage-file-input" onChange={onInputChange} />
       <Sidebar
         rows={rows} columns={columns} shape={shape} border={border} cell={cell} firstSize={firstSize}
@@ -176,7 +150,7 @@ function GridView({ active }: { active: boolean }) {
         recents={recents.items} usedIds={usedIds} onToggleRecent={toggleRecent} onForgetRecent={forgetRecent}
       />
       <CollageGrid
-        slots={slots} rows={rows} columns={columns} tileAspect={tileAspect} border={border} output={output} dropping={dropping}
+        slots={slots} rows={rows} columns={columns} tileAspect={tileAspect} border={border} output={output}
         getPhoto={getPhoto}
         onCrop={collage.setCrop} onRemove={collage.remove} onSwap={collage.swapSlots}
         onPickEmpty={pickFor} onDropFiles={replaceAt}

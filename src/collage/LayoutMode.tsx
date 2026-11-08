@@ -7,6 +7,9 @@ import { getBitmapForSize, type Photo } from '../core/images';
 import { usePhotoLibrary } from '../core/library';
 import { useHistoryTarget } from '../core/menuHistory';
 import { usePasteImages } from '../core/usePasteImages';
+import { useWindowFileDrop } from '../core/useWindowFileDrop';
+import { DropOverlay } from '../ui/DropOverlay';
+import { revealLabel } from '../ui/revealLabel';
 import { PhotoTray } from '../ui/PhotoTray';
 import { Button, Segmented, Slider } from '../ui/Controls';
 import { useToast } from '../ui/Toast';
@@ -49,6 +52,7 @@ export function LayoutMode({ active }: { active: boolean }) {
   const ed = useEditor(story, mutate);
   useHistoryTarget(visible, history);
   usePasteImages(visible, (files) => void lib.addFiles(files));
+  const fileDrag = useWindowFileDrop(visible, (files) => void lib.addFiles(files));
 
   const [shape, setShape] = useState<PageShape>(DEFAULT_SHAPE);
   const [background, setBackground] = useState('#ffffff');
@@ -135,7 +139,7 @@ export function LayoutMode({ active }: { active: boolean }) {
     const r = await render(exportLongEdge(exportEdge, live.current));
     const saved = await api.saveFile({ defaultName: collageFileName(), filters: [{ name: 'JPEG image', extensions: ['jpg', 'jpeg'] }], data: r.data });
     if (!saved) return;
-    toast(`Saved ${saved.split(/[\\/]/).pop()}`, 'success');
+    toast(`Saved ${saved.split(/[\\/]/).pop()}`, 'success', { label: revealLabel(), onClick: () => api.revealInFolder(saved) });
   });
   const doSendToStory = () => run('story', async () => {
     const r = await render(exportLongEdge(exportEdge, live.current));
@@ -145,6 +149,7 @@ export function LayoutMode({ active }: { active: boolean }) {
 
   return (
     <div ref={root} className="story-view layout-mode" data-testid="view-collage-layout">
+      <DropOverlay show={fileDrag} />
       <aside className="sidebar story-tray">
         <div className="section">
           <PhotoTray
