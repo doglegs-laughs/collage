@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react';
 import { useVisible } from '../collage/useVisible';
 import { usePasteImages } from '../core/usePasteImages';
+import { useWindowFileDrop } from '../core/useWindowFileDrop';
+import { DropOverlay } from '../ui/DropOverlay';
+import { revealLabel } from '../ui/revealLabel';
 import { api } from '../api';
 import { usePhotoLibrary } from '../core/library';
 import { useToast } from '../ui/Toast';
@@ -26,6 +29,7 @@ export function BordersView() {
   const cancelRequested = useRef(false);
 
   usePasteImages(visible, (files) => void library.addFiles(files));
+  const fileDrag = useWindowFileDrop(visible, (files) => void library.addFiles(files));
 
   const { photos } = library;
   const batch = photos.filter((p) => !deselected.has(p.id));
@@ -93,6 +97,7 @@ export function BordersView() {
 
   return (
     <div ref={root} className="workspace" data-testid="view-borders">
+      <DropOverlay show={fileDrag} />
       <aside className="sidebar borders-side">
         <PhotoTray
           className="section"
@@ -153,7 +158,7 @@ function DoneBanner({ result, onClose }: { result: ExportResult; onClose: () => 
     <div className={`borders-done ${failed ? 'warn' : ''}`} role="status" title={details || undefined}>
       <span>{text}</span>
       {written > 0 && (
-        <button type="button" className="link" onClick={() => api.revealInFolder(result.written[0])}>Reveal in folder</button>
+        <button type="button" className="link" onClick={() => api.revealInFolder(result.written[0])}>{revealLabel()}</button>
       )}
       <button type="button" className="borders-x" aria-label="Dismiss" onClick={onClose}>×</button>
     </div>

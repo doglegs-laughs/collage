@@ -13,7 +13,6 @@ type Props = {
   tileAspect: number;
   border: number;
   output: Size | null;
-  dropping: boolean;
   getPhoto: (id: string) => Photo | undefined;
   onCrop: (index: number, crop: Crop) => void;
   onRemove: (index: number) => void;
@@ -30,7 +29,7 @@ export function CollageGrid(p: Props) {
   const style = { width, '--columns': p.columns, '--tile-aspect': p.tileAspect, '--gap': `${gap}px` } as CSSProperties;
 
   return (
-    <main ref={stage} className={`stage ${p.dropping ? 'dropping' : ''}`} aria-label="Collage preview">
+    <main ref={stage} className="stage" aria-label="Collage preview">
       <div className="collage-grid" data-testid="collage-grid" style={style}>
         {p.slots.map((placement, i) => (
           <Slot

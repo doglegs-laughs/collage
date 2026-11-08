@@ -4,6 +4,7 @@ import { computeTimeline, fitToMusicApplies, timelineOptions } from './timeline'
 import { Button, Segmented, Slider } from '../ui/Controls';
 import { useDialogFocus } from '../ui/useDialogFocus';
 import { useToast } from '../ui/Toast';
+import { revealLabel } from '../ui/revealLabel';
 import { Check, Field } from './fields';
 import { NO_MEMORY, pickTransition, setBeatSync, type SyncMemory, type SyncStep } from './videoDialogState';
 import { evenPageSize, pageSize, visibleIndices, type Story, type VideoSettings } from './model';
@@ -173,7 +174,7 @@ export function ExportStatus({ job, done, onCancel, onClear }: { job: ExportJob 
       ) : done ? (
         <>
           <span>{done.message}</span>
-          <button type="button" className="link" onClick={() => api.revealInFolder(done.reveal)} data-testid="export-reveal">Reveal</button>
+          <button type="button" className="link" onClick={() => api.revealInFolder(done.reveal)} data-testid="export-reveal">{revealLabel()}</button>
           <button type="button" className="borders-x" aria-label="Dismiss" onClick={onClear}>×</button>
         </>
       ) : null}

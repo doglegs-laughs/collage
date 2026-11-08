@@ -55,6 +55,21 @@ const stubDialogs = (args: { photos: string[]; folder: string }) =>
     }) as never;
   }, args);
 
+/** Fire a synthetic external file drag (dragenter, dragover, optionally drop) at the first element matching `selector`. */
+async function dragFiles(page: Page, selector: string, file: { name: string; type: string; b64: string }, phase: 'over' | 'drop') {
+  await page.evaluate(({ selector, file, phase }) => {
+    const bytes = Uint8Array.from(atob(file.b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], file.name, { type: file.type }));
+    const el = document.querySelector(selector)!;
+    const fire = (type: string) => el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }));
+    fire('dragenter');
+    fire('dragover');
+    if (phase === 'drop') fire('drop');
+  }, { selector, file, phase });
+}
+const asDroppable = (p: string, name = 'dropped.jpg', type = 'image/jpeg') => ({ name, type, b64: fs.readFileSync(p).toString('base64') });
+
 /** Width and height from a JPEG's start-of-frame marker. */
 function jpegSize(file: string): { w: number; h: number } {
   const b = fs.readFileSync(file);
@@ -144,4 +159,13 @@ test('print mat + 4:5 exports two JPEGs with a visible paper edge; previews of e
   } finally {
     fs.rmSync(folder, { recursive: true, force: true });
   }
+});
+
+test('photos dropped anywhere on the window are added', async () => {
+  const area = '.topbar'; // anywhere outside the tray
+  await dragFiles(page, area, asDroppable(photos[0]), 'over');
+  await expect(page.locator('.drop-overlay')).toBeVisible();
+  await dragFiles(page, area, asDroppable(photos[0]), 'drop');
+  await expect(page.locator('.drop-overlay')).toHaveCount(0);
+  await expect(page.getByTestId('view-borders').locator('.tray-item')).toHaveCount(1, { timeout: 30_000 });
 });

@@ -76,6 +76,7 @@ test('imports four photos, exports the collage at the reference size', async () 
   await exportButton.click();
   await expect.poll(() => fs.existsSync(target), { timeout: 120_000 }).toBe(true);
   await expect(page.locator('.toast.success')).toContainText('Saved', { timeout: 30_000 });
+  await expect(page.locator('.toast.success').getByRole('button', { name: 'Show in folder' })).toBeVisible();
   expect(jpegSize(target)).toEqual({ width: 8378, height: 6378 });
 });
 
