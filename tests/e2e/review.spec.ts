@@ -159,3 +159,26 @@ test('Story: rejecting in Review takes the photo off its page', async () => {
   expect(pageText).toMatch(/Page \d+ of \d+/);
   await expect.poll(async () => (await view.locator('.story-stage img').evaluateAll((els) => els.map((e) => (e as HTMLImageElement).src))).join('|')).not.toBe(before.join('|'));
 });
+
+test('full screen shows the whole photo, landscape and portrait', async () => {
+  await addPhotos();
+  await fakeFullscreen();
+  await story().getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(overlay()).toHaveAttribute('data-fullscreen', 'true');
+  const vp = page.viewportSize()!;
+  for (const n of [1, 2, 3]) {
+    await expect(position()).toHaveText(`${n} / 3`);
+    const img = overlay().locator('.lightbox-img.ready');
+    await expect(img).toBeVisible();
+    const r = (await img.boundingBox())!;
+    const natural = await img.evaluate((el: HTMLImageElement) => el.naturalWidth / el.naturalHeight);
+    // The rendered photo (object-fit: contain inside the box) must sit inside the window.
+    const scale = Math.min(r.width / natural, r.height);
+    const w = scale * natural, h = scale;
+    expect(r.x + (r.width - w) / 2).toBeGreaterThanOrEqual(-1);
+    expect(r.y + (r.height - h) / 2).toBeGreaterThanOrEqual(-1);
+    expect(r.x + (r.width + w) / 2).toBeLessThanOrEqual(vp.width + 1);
+    expect(r.y + (r.height + h) / 2).toBeLessThanOrEqual(vp.height + 1);
+    await page.keyboard.press('ArrowRight');
+  }
+});

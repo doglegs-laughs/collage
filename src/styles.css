@@ -285,7 +285,7 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 .hover-preview img { width: 100%; height: 100%; object-fit: contain; border-radius: 10px; display: block; }
 .lightbox { position: fixed; inset: 0; z-index: 100; display: grid; outline: none; animation: pv-fade .16s ease-out; color: #fff; }
 .lightbox-backdrop { position: absolute; inset: 0; background: #05070cb8; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
-.lightbox-stage { position: absolute; inset: 24px 84px 96px; display: grid; place-items: center; pointer-events: none; animation: pv-in .18s ease-out; }
+.lightbox-stage { position: absolute; inset: 24px 84px 96px; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; pointer-events: none; animation: pv-in .18s ease-out; }
 .lightbox-img { grid-area: 1 / 1; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 20px 60px #0008; }
 .lightbox-low { width: 100%; height: 100%; }
 .lightbox-img:not(.lightbox-low) { opacity: 0; transition: opacity .18s; }
@@ -314,7 +314,7 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 /* Full screen: black, photo as large as possible; bar and arrows fade out when the mouse rests. */
 .lightbox.fs .lightbox-backdrop { background: #000; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .lightbox.fs .lightbox-stage { inset: 0; }
-.lightbox.fs .lightbox-img { border-radius: 0; box-shadow: none; }
+.lightbox.fs .lightbox-img { width: 100%; height: 100%; border-radius: 0; box-shadow: none; }
 .lightbox.fs .lightbox-bar, .lightbox.fs .lightbox-nav { transition: opacity .4s; }
 .lightbox.fs.idle { cursor: none; }
 .lightbox.fs.idle .lightbox-bar, .lightbox.fs.idle .lightbox-nav { opacity: 0; pointer-events: none; }
