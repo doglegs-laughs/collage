@@ -196,5 +196,6 @@ export const resetTimeline = (story: Story): Story => editTimeline(story, () => 
  */
 export function patchVideo(story: Story, patch: Partial<VideoSettings>): Story {
   const next: Story = { ...story, video: { ...story.video, ...patch } };
+  if ('audioPath' in patch && !('audioBuiltin' in patch)) delete next.video.audioBuiltin; // a new or cleared file is no longer a built-in track
   return 'audioPath' in patch && patch.audioPath !== story.video.audioPath ? editTimeline(next, (t) => ({ ...t, audioOffset: 0 })) : next;
 }

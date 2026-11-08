@@ -3,9 +3,10 @@ import { api, type BeatAnalysis } from '../api';
 import { computeTimeline, fitToMusicApplies, timelineOptions } from './timeline';
 import { Button, Segmented, Slider } from '../ui/Controls';
 import { useDialogFocus } from '../ui/useDialogFocus';
-import { useToast } from '../ui/Toast';
 import { revealLabel } from '../ui/revealLabel';
 import { Check, Field } from './fields';
+import { MusicPicker } from './MusicPicker';
+import { musicLabel, musicPatch, useBuiltinTracks, type MusicChoice } from './music';
 import { NO_MEMORY, pickTransition, setBeatSync, type SyncMemory, type SyncStep } from './videoDialogState';
 import { evenPageSize, pageSize, visibleIndices, type Story, type VideoSettings } from './model';
 import type { ExportJob, ExportDone, VideoRequest } from './useExporter';
@@ -58,12 +59,12 @@ type VideoProps = {
 };
 
 export function VideoDialog({ story, onVideo, onExport, onClose, onEditTiming }: VideoProps) {
-  const toast = useToast();
   const v = story.video;
   const pageSeconds = v.pageSeconds ?? 3; // kept in the story, so the Timeline panel and the export use the same value
   const [width, setWidth] = useState<'720' | '1080'>('1080');
   const size = evenPageSize(story.aspect, Number(width));
-  const music = v.audioPath?.split(/[\\/]/).pop() ?? null;
+  const music = musicLabel(v, useBuiltinTracks());
+  const [picking, setPicking] = useState(false);
   const [analysis, setAnalysis] = useState<{ path: string; result?: BeatAnalysis; error?: string } | null>(null);
   const [retry, setRetry] = useState(0);
   const sync = v.syncToBeats && !!v.audioPath;
@@ -85,13 +86,9 @@ export function VideoDialog({ story, onVideo, onExport, onClose, onEditTiming }:
     }, 300);
     return () => { active = false; window.clearTimeout(timer); };
   }, [v.syncToBeats, v.audioPath, retry]);
-  const pick = async () => {
-    try {
-      const path = await api.openAudio();
-      if (path) onVideo({ audioPath: path });
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not choose music.', 'error');
-    }
+  const choose = (choice: MusicChoice) => {
+    if (choice) onVideo(musicPatch(choice));
+    else apply(setBeatSync(v, memory.current, false), { audioPath: null, fitToMusic: false });
   };
   return (
     <Modal title="Export video" onClose={onClose} testid="video-dialog">
@@ -109,11 +106,12 @@ export function VideoDialog({ story, onVideo, onExport, onClose, onEditTiming }:
       </Field>}
       <Field label="Music (optional)">
         <div className="music-row">
-          <Button variant="soft" onClick={pick}>{music ? 'Change…' : 'Choose music…'}</Button>
+          <Button variant="soft" onClick={() => setPicking(true)}>{music ? 'Change…' : 'Choose music…'}</Button>
           {music && <span className="music-name" title={v.audioPath ?? ''}>{music}</span>}
           {music && <button type="button" className="link" onClick={() => apply(setBeatSync(v, memory.current, false), { audioPath: null, fitToMusic: false })}>Clear</button>}
         </div>
       </Field>
+      {picking && <MusicPicker video={v} onChoose={choose} onClose={() => setPicking(false)} />}
       <Check label="Sync photo changes to beats" checked={sync} disabled={!music} onChange={(enabled) => apply(setBeatSync(v, memory.current, enabled))} />
       {sync && <>
         <Field label="Beats per page">

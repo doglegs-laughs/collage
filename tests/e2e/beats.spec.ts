@@ -49,6 +49,7 @@ test('detects music beats, changes pace, and exports frame-aligned photo changes
     const sync = page.getByRole('checkbox', { name: 'Sync photo changes to beats' });
     await expect(sync).toBeDisabled();
     await page.getByRole('button', { name: 'Choose music…' }).click();
+    await page.getByTestId('music-browse').click();
     await sync.check();
     await expect(page.getByTestId('beat-status')).toContainText('120 BPM');
     await expect(page.getByRole('checkbox', { name: 'Fit to music length' })).toBeDisabled();
@@ -78,6 +79,7 @@ test('detects music beats, changes pace, and exports frame-aligned photo changes
       dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [file] })) as never;
     }, silent);
     await page.getByRole('button', { name: 'Change…', exact: true }).click();
+    await page.getByTestId('music-browse').click();
     await expect(page.getByTestId('beat-status')).toContainText('No clear beats');
     await expect(page.getByTestId('video-go')).toBeDisabled();
     await sync.uncheck();

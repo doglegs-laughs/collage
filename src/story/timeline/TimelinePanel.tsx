@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../../api';
 import { Button, Segmented, Slider } from '../../ui/Controls';
-import { useToast } from '../../ui/Toast';
 import { beatClock, hasBeats } from '../beatTiming';
 import { ContextMenu, type MenuItem } from '../ContextMenu';
 import { Check } from '../fields';
+import { MusicPicker } from '../MusicPicker';
+import { musicLabel, musicPatch, useBuiltinTracks, type MusicChoice } from '../music';
 import type { BoundaryTransition, Story, VideoSettings } from '../model';
 import { audioDuration } from '../exportStory';
 import { computeTimeline, defaultBoundaries, fitToMusicApplies, lockClip, musicLoopSeconds, patchVideo, resetTimeline, resyncFrom, setAudioOffset, setBoundaryTransition, timelineOptions, unlockClip, type ComputedTimeline } from '../timeline';
@@ -54,7 +54,6 @@ function useStable<A extends unknown[], R>(fn: (...a: A) => R): (...a: A) => R {
 
 /** The timeline editor that replaces the page strip: clips sized by duration, transitions between them, and the music with its beats underneath. */
 export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, onClose, visible = true }: Props) {
-  const toast = useToast();
   const v = story.video;
   const root = useRef<HTMLElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -151,13 +150,11 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
   // Changing or clearing the music also forgets the music start (patchVideo), in the same undo step.
   const setVideo = (patch: Partial<VideoSettings>) => mutate((s) => patchVideo(s, patch), 'video-settings');
   const applySync = (step: SyncStep, extra: Partial<VideoSettings> = {}) => { memory.current = step.memory; setVideo({ ...step.patch, ...extra }); };
-  const pickMusic = async () => {
-    try {
-      const path = await api.openAudio();
-      if (path) setVideo({ audioPath: path });
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not choose music.', 'error');
-    }
+  const builtin = useBuiltinTracks();
+  const [picking, setPicking] = useState(false);
+  const chooseMusic = (choice: MusicChoice) => {
+    if (choice) setVideo(musicPatch(choice));
+    else applySync(setBeatSync(v, memory.current, false), { audioPath: null, fitToMusic: false });
   };
 
   const menuItems = (pageId: string): MenuItem[] => {
@@ -195,7 +192,7 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
   const last = Math.ceil((view.left + view.width) / pps / step);
   const ticks = Array.from({ length: Math.max(0, last - first + 1) }, (_, i) => (first + i) * step);
 
-  const fileName = v.audioPath?.split(/[\\/]/).pop() ?? '';
+  const fileName = musicLabel(v, builtin) ?? '';
   const status = music.status === 'busy' ? 'Analyzing…' : music.status === 'error' ? (music.error ?? 'Could not analyze') : analysis?.noBeats ? (analysis.reason ?? 'No clear beats found. Try another track.') : analysis ? `${analysis.bpm} BPM · ${analysis.beats.length} beats` : '';
 
   return (
@@ -219,7 +216,7 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
           <Slider label="Timeline zoom" value={Math.round(pps)} min={Math.max(1, Math.floor(minZoom))} max={MAX_PX_PER_SECOND} onChange={(x) => setZoom(x <= minZoom + 0.5 ? null : x)} format={(x) => `${x} px/s`} />
         </div>
         <div className="tl-group tl-music">
-          <Button variant="soft" onClick={pickMusic} data-testid="tl-music">{v.audioPath ? 'Change music…' : 'Choose music…'}</Button>
+          <Button variant="soft" onClick={() => setPicking(true)} data-testid="tl-music">{v.audioPath ? 'Change music…' : 'Choose music…'}</Button>
           {v.audioPath && <button type="button" className="link" onClick={() => applySync(setBeatSync(v, memory.current, false), { audioPath: null, fitToMusic: false })}>Clear</button>}
           {v.audioPath && <Check label="Sync to beats" checked={v.syncToBeats} disabled={!!analysis?.noBeats && !v.syncToBeats} onChange={(on) => applySync(setBeatSync(v, memory.current, on))} />}
           {v.audioPath && (
@@ -229,6 +226,7 @@ export function TimelinePanel({ story, mutate, pageIndex, thumbs, onSelectPage, 
               onChange={(n) => setVideo({ beatsPerPage: Number(n) as VideoSettings['beatsPerPage'] })}
             />
           )}
+          {picking && <MusicPicker video={v} onChoose={chooseMusic} onClose={() => setPicking(false)} />}
           {v.audioPath && status && <span className="tl-status" role="status" data-testid="tl-status">{status}</span>}
         </div>
         <button type="button" className="borders-x tl-close" onClick={onClose} aria-label="Close timeline" title="Back to the page strip" data-testid="tl-close">×</button>

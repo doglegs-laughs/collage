@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useToast } from '../ui/Toast';
+import { isAudioFile } from './audio';
 import { isImageFile } from './images';
 
 const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
@@ -7,11 +8,14 @@ const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('
 /**
  * While `active`, photo files dragged from outside the app onto anywhere in the window are handed to `onFiles`.
  * Returns true while such a drag is over the window (for the drop overlay). The app's own drags carry no 'Files' and are ignored.
+ * With `onAudio`, music files in the drop go there instead of being rejected (a mixed drop calls both).
  */
-export function useWindowFileDrop(active: boolean, onFiles: (files: File[]) => void): boolean {
+export function useWindowFileDrop(active: boolean, onFiles: (files: File[]) => void, onAudio?: (files: File[]) => void): boolean {
   const toast = useToast();
   const ref = useRef(onFiles);
   ref.current = onFiles;
+  const audioRef = useRef(onAudio);
+  audioRef.current = onAudio;
   const toastRef = useRef(toast);
   toastRef.current = toast;
   const [over, setOver] = useState(false);
@@ -28,9 +32,12 @@ export function useWindowFileDrop(active: boolean, onFiles: (files: File[]) => v
       depth = 0;
       setOver(false);
       if (taken) return;
-      const files = [...(e.dataTransfer?.files ?? [])].filter(isImageFile);
+      const dropped = [...(e.dataTransfer?.files ?? [])];
+      const files = dropped.filter(isImageFile);
+      const music = audioRef.current ? dropped.filter(isAudioFile) : [];
       if (files.length) ref.current(files);
-      else toastRef.current('Only photos can be added', 'error');
+      if (music.length) audioRef.current!(music);
+      if (!files.length && !music.length) toastRef.current(audioRef.current ? 'Only photos or music can be added' : 'Only photos can be added', 'error');
     };
     window.addEventListener('dragenter', enter);
     window.addEventListener('dragleave', leave);

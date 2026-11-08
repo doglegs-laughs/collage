@@ -3,6 +3,7 @@ import { api, isDesktop, type SidecarPhoto } from '../api';
 import type { PhotoLibrary } from '../core/library';
 import { useToast } from '../ui/Toast';
 import { storyBaseName } from './exportStory';
+import { loadBuiltinTracks, resolveBuiltinMusic } from './music';
 import { deserializeStory, serializeStory, StoryFormatError, type Photo, type Story } from './model';
 
 /** Replace project photos by library photos (matched by content id, then by path); the rest become empty slots. */
@@ -70,8 +71,10 @@ export function useProject(getStory: () => Story, lib: PhotoLibrary, onLoad: (s:
     try {
       if (isDirty?.() && !window.confirm('Opening a project replaces the story you are editing, and its unsaved changes will be lost. Open anyway?')) return;
       const parsed = deserializeStory(file.json);
-      const loaded = { ...parsed,
-        video: { ...parsed.video, audioPath: parsed.video.audioPath ? resolvePhotoPath(file.path, parsed.video.audioPath) : null },
+      // Built-in music is found again by id (the app's folder may have moved); other music paths are relative to the project.
+      const music = resolveBuiltinMusic(parsed, parsed.video.audioBuiltin ? await loadBuiltinTracks() : []);
+      const loaded = { ...music.story,
+        video: { ...music.story.video, audioPath: music.story.video.audioPath && !music.story.video.audioBuiltin ? resolvePhotoPath(file.path, music.story.video.audioPath) : music.story.video.audioPath },
         photos: parsed.photos.map((p) => (p.path ? { ...p, path: resolvePhotoPath(file.path, p.path) } : p)),
       };
       const paths = loaded.photos.flatMap((p) => (p.path ? [p.path] : []));
@@ -82,6 +85,7 @@ export function useProject(getStory: () => Story, lib: PhotoLibrary, onLoad: (s:
         missing.length ? `Opened, but ${missing.length} photo${missing.length === 1 ? ' is' : 's are'} missing: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? '…' : ''}` : label,
         missing.length ? 'error' : 'success',
       );
+      if (music.missing) toast('The built-in music this story used is no longer available, so it has no music now.', 'info');
     } catch (e) {
       toast(e instanceof StoryFormatError || e instanceof Error ? e.message : 'Could not open the project.', 'error');
     }

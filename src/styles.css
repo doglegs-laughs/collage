@@ -262,6 +262,23 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 .story-modal .section-title { margin-bottom: 14px; font-size: 16px; }
 .music-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .music-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12.5px; }
+.music-backdrop { z-index: 60; }
+.music-picker { width: min(520px, calc(100vw - 32px)); }
+.music-head { display: flex; align-items: center; justify-content: space-between; }
+.music-group { margin: 16px 0 6px; color: var(--faint); font-size: 11.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
+.music-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.music-item { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 10px; border-radius: 12px; border: 1px solid transparent; cursor: pointer; }
+.music-item:hover { background: var(--panel-2); }
+.music-item.current { background: var(--accent-soft); border-color: var(--accent); }
+.music-info { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.music-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.music-meta { color: var(--muted); font-size: 12px; }
+.music-play { flex: none; width: 30px; height: 30px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--panel); color: var(--accent-text); font-size: 11px; line-height: 1; }
+.music-play[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.music-remove { flex: none; border: 0; background: none; color: var(--faint); font-size: 18px; line-height: 1; }
+.music-remove:hover { color: var(--danger); }
+.music-credits { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.music-picker .btn-row { margin-top: 16px; }
 .story-status { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 14px; max-width: min(560px, calc(100vw - 32px)); padding: 10px 16px; border-radius: 999px; background: var(--text); color: var(--bg); font-weight: 500; box-shadow: 0 16px 40px -12px #0f172a80; }
 .story-status .link { color: inherit; }
 .story-status .elapsed { font-variant-numeric: tabular-nums; opacity: .8; }

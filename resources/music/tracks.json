@@ -1,0 +1,5 @@
+[
+  { "id": "placeholder-upbeat", "file": "placeholder-upbeat.m4a", "title": "Placeholder Upbeat", "artist": "Collage test tones", "mood": "upbeat", "durationSec": 12, "bpm": 128, "license": "CC0", "source": "Generated with ffmpeg for development" },
+  { "id": "placeholder-happy", "file": "placeholder-happy.m4a", "title": "Placeholder Happy", "artist": "Collage test tones", "mood": "happy", "durationSec": 10, "bpm": 110, "license": "CC0", "source": "Generated with ffmpeg for development" },
+  { "id": "placeholder-nostalgic", "file": "placeholder-nostalgic.m4a", "title": "Placeholder Nostalgic", "artist": "Collage test tones", "mood": "nostalgic", "durationSec": 15, "bpm": 80, "license": "CC0", "source": "Generated with ffmpeg for development" }
+]

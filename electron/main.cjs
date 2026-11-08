@@ -6,6 +6,7 @@ const video = require('./video.cjs');
 const gif = require('./gif.cjs');
 const store = require('./store.cjs');
 const { analyzeAudio } = require('./beats.cjs');
+const { loadBuiltinMusic } = require('./music.cjs');
 const { createVideoCache, computeKey } = require('./video-cache.cjs');
 const { assertLocalPath, isRemotePath, rendererUrl, sameDocument, trustedSender } = require('./security.cjs');
 
@@ -215,6 +216,8 @@ function registerIpc() {
     return r.canceled ? null : r.filePaths[0];
   });
   handle('audio:analyze', (_e, file, soft) => analyzeAudio(assertLocalPath(file), soft === true));
+  // Starter pack: shipped in the app's resources (music/), or read from the repo while developing.
+  handle('music:builtin', () => loadBuiltinMusic(app.isPackaged ? path.join(process.resourcesPath, 'music') : path.join(__dirname, '..', 'resources', 'music')));
   handle('dialog:chooseFolder', async () => {
     const r = await dialog.showOpenDialog(win(), { properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];

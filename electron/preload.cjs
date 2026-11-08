@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   pathForFile: (file) => webUtils.getPathForFile(file),
   openImages: () => invoke('dialog:openImages'),
   openAudio: () => invoke('dialog:openAudio'),
+  builtinMusic: () => invoke('music:builtin'),
   analyzeAudio: (path, soft) => invoke('audio:analyze', path, soft === true),
   chooseFolder: () => invoke('dialog:chooseFolder'),
   readFile: (path) => invoke('file:read', path),

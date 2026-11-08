@@ -940,12 +940,12 @@ test('deselecting a photo in the tray takes it off its page; undo brings it back
 test('photos dropped anywhere on the window are added; non-photos are refused', async () => {
   const area = '.topbar'; // anywhere outside the tray
   await dragFiles(page, area, asDroppable(photos[0]), 'over');
-  await expect(page.locator('.drop-overlay')).toHaveText('Drop photos to add them');
+  await expect(page.locator('.drop-overlay')).toHaveText('Drop photos or music');
   await dragFiles(page, area, asDroppable(photos[0]), 'drop');
   await expect(page.locator('.drop-overlay')).toHaveCount(0);
   await expect(story().locator('.tray-item')).toHaveCount(1, { timeout: 30_000 });
 
   await dragFiles(page, area, { name: 'notes.txt', type: 'text/plain', b64: btoa('hi') }, 'drop');
-  await expect(page.locator('.toast.error')).toHaveText('Only photos can be added');
+  await expect(page.locator('.toast.error')).toHaveText('Only photos or music can be added');
   await expect(story().locator('.tray-item')).toHaveCount(1);
 });

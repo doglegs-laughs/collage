@@ -60,6 +60,7 @@ test('edits clip lengths against the beats, changes a transition, undoes, and ex
 
     // Music: choose it, analyze it, see the beats.
     await panel.getByTestId('tl-music').click();
+    await page.getByTestId('music-browse').click();
     await expect(panel.getByTestId('tl-audio')).toBeVisible();
     await panel.getByTestId('tl-analyze').click();
     await expect(panel.getByTestId('tl-status')).toContainText('120 BPM');

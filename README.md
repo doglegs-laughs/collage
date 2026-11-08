@@ -96,6 +96,7 @@ In every tab you can drag photos from Finder anywhere onto the window to add the
 **Export** (top right)
 - **Images:** one JPEG per page at 1080 or 2160 px wide, numbered in order.
 - **Video:** an MP4 with crossfades and a slow zoom, optionally with music, with "fit to music" timing. Panoramas that span two slides pan left to right.
+- **Music:** click **Choose music…** to pick from the built-in upbeat, happy and nostalgic tracks (free to use anywhere; **Credits** lists the artists), preview any of them with the play button, or choose **Your music…** for a song from your computer. The last eight songs you used are listed under **Recent**. You can also drag a song file straight onto the window while you are in Story.
 - **Beat sync:** pick music, turn on **Sync photo changes to beats**, and choose **1, 2, 4 or 8 beats per page**. The app finds the rhythm on your computer and cuts on the beat, with no transition by default (you can still pick a crossfade, centred on the beat). Hidden pages are skipped and short tracks loop. Music with a clear rhythm works best; files up to 25 minutes.
 - **Timeline:** fine-tune timing by hand (see below).
 

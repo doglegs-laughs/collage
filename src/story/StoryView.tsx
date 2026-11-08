@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Photo } from '../core/images';
 import { usePhotoLibrary } from '../core/library';
 import { usePasteImages } from '../core/usePasteImages';
+import { musicFromDrop } from '../core/audio';
 import { useWindowFileDrop } from '../core/useWindowFileDrop';
 import { DropOverlay } from '../ui/DropOverlay';
 import { api, type AutosaveFile, type RecentStory } from '../api';
@@ -21,6 +22,7 @@ import { StoryEmpty, type MakeOpts } from './StoryEmpty';
 import { StoryInspector } from './StoryInspector';
 import { StoryStage, type DropHit } from './StoryStage';
 import { StoryTopbar } from './StoryTopbar';
+import { rememberMusic } from './music';
 import { patchVideo } from './timeline';
 import { TimelinePanel } from './timeline/TimelinePanel';
 import { addTitlePage, addTitleToPage, newSeed, setRoleFont } from './storyOps';
@@ -52,7 +54,16 @@ export function StoryView() {
   const project = useProject(getStory, lib, useCallback((s: Story) => { st.load(s); ed.goTo(0); }, [st.load, ed.goTo]), { isDirty, onSaved: st.markSaved }); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api.setDirty(st.dirty); }, [st.dirty]);
   usePasteImages(visible, (files) => void lib.addFiles(files));
-  const fileDrag = useWindowFileDrop(visible, (files) => void lib.addFiles(files));
+  // A dropped song becomes the story's music (one undo step); photos in the same drop still go to the library.
+  const dropMusic = useCallback((files: File[]) => {
+    const music = musicFromDrop(files, (f) => api.pathForFile(f));
+    if (!music) return;
+    if ('error' in music) { toast(music.error, 'error'); return; }
+    rememberMusic(music.path);
+    st.mutate((s) => patchVideo(s, { audioPath: music.path }));
+    toast(`Music: ${music.name}`, 'success');
+  }, [st.mutate, toast]);
+  const fileDrag = useWindowFileDrop(visible, (files) => void lib.addFiles(files), dropMusic);
   useAutosave(story, thumbs[0] ?? null);
   const [resume, setResume] = useState<AutosaveFile | null>(null);
   const [recents, setRecents] = useState<RecentStory[]>([]);
@@ -207,7 +218,7 @@ export function StoryView() {
 
   return (
     <div ref={root} className={`story-view ${hasPages ? '' : 'empty'}`} data-testid="view-story">
-      <DropOverlay show={fileDrag} />
+      <DropOverlay show={fileDrag} music />
       <aside className="sidebar story-tray">
         <div className="section">
           <PhotoTray

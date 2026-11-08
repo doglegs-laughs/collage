@@ -50,6 +50,14 @@ export interface BeatAnalysis {
   noBeats?: boolean; reason?: string;
 }
 
+export type MusicMood = 'upbeat' | 'happy' | 'nostalgic';
+
+/** A track of the built-in starter pack (resources/music/tracks.json) with its current absolute file `path`. */
+export interface BuiltinTrack {
+  id: string; title: string; artist: string; mood: MusicMood; durationSec: number; bpm: number; license: string; source: string;
+  path: string;
+}
+
 export interface FileFilter { name: string; extensions: string[] }
 
 export interface Api {
@@ -57,6 +65,8 @@ export interface Api {
   pathForFile(file: File): string;
   openImages(): Promise<string[]>;
   openAudio(): Promise<string | null>;
+  /** The starter-pack tracks whose files are present; the entries of tracks.json that are invalid or missing are left out. */
+  builtinMusic(): Promise<BuiltinTrack[]>;
   /** Rejects when no beats are found, unless `soft` is set: then such a track resolves with `noBeats: true`, its waveform and duration. */
   analyzeAudio(path: string, soft?: boolean): Promise<BeatAnalysis>;
   readFile(path: string): Promise<Uint8Array>;
@@ -144,6 +154,7 @@ const browserApi: Api = {
   pathForFile: () => '',
   openImages: unsupported('Choosing files by path'),
   openAudio: unsupported('Choosing music'),
+  builtinMusic: async () => [],
   analyzeAudio: unsupported('Detecting music beats'),
   readFile: unsupported('Reading files by path'),
   async saveFile({ defaultName, data }) {

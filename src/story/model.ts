@@ -81,7 +81,11 @@ export const MIN_CLIP_SECONDS = 0.2;
 export const MAX_CLIP_SECONDS = 60;
 // Beat analysis accepts tracks up to 25 minutes; larger offsets are never useful and lose numeric precision.
 export const MAX_AUDIO_OFFSET_SECONDS = 25 * 60;
-export type VideoSettings = { transition: 'none' | 'crossfade'; transitionSeconds: number; kenBurns: boolean; audioPath: string | null; fitToMusic: boolean; syncToBeats: boolean; beatsPerPage: 1 | 2 | 4 | 8;
+/** Built-in track ids: lowercase letters, digits and hyphens (checked again against the manifest when resolved). */
+export const BUILTIN_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+export type VideoSettings = { transition: 'none' | 'crossfade'; transitionSeconds: number; kenBurns: boolean; audioPath: string | null;
+  /** Id of the built-in track `audioPath` points at. The path changes when the app moves or updates, so it is looked up again from this id on load (see resolveBuiltinMusic). */
+  audioBuiltin?: string; fitToMusic: boolean; syncToBeats: boolean; beatsPerPage: 1 | 2 | 4 | 8;
   /** Seconds for pages whose own duration is still the default 3 s (the video dialog's slider). Absent = 3. */
   pageSeconds?: number; timeline?: Timeline };
 export type Story = {
@@ -521,6 +525,7 @@ export function deserializeStory(json: string): Story {
       transitionSeconds: typeof v.transitionSeconds === 'number' && Number.isFinite(v.transitionSeconds) ? Math.min(1.5, Math.max(0.2, v.transitionSeconds)) : DEFAULT_VIDEO.transitionSeconds,
       kenBurns: v.kenBurns === true,
       audioPath: typeof v.audioPath === 'string' && !v.audioPath.includes('\0') && !/^[a-z][a-z0-9+.-]*:/i.test(v.audioPath.replace(/^[A-Za-z]:[\\/]/, '')) && !isRemotePath(v.audioPath) ? v.audioPath : null,
+      ...(typeof v.audioBuiltin === 'string' && BUILTIN_ID.test(v.audioBuiltin) ? { audioBuiltin: v.audioBuiltin } : {}),
       fitToMusic: v.fitToMusic === true,
       syncToBeats: v.syncToBeats === true,
       beatsPerPage: [1, 2, 4, 8].includes(v.beatsPerPage as number) ? v.beatsPerPage as 1 | 2 | 4 | 8 : 4,
