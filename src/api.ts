@@ -26,6 +26,18 @@ export interface VideoJob {
   cacheKey?: string;
 }
 
+export interface GifJob {
+  /** JPEG bytes, all the same size. */
+  frames: Uint8Array[];
+  /** Seconds each frame shows (same length as `frames`). */
+  durations: number[];
+  loop: 'forever' | 'once';
+  /** Default file name in the save dialog. */
+  suggestedName?: string;
+}
+
+export interface GifResult { path: string; bytes: number }
+
 export interface VideoCacheLookup { key: string | null; hit: boolean }
 
 /** A photo that has no file on disk (pasted, sent from Collage); saved beside the project so it can be found again. */
@@ -59,6 +71,11 @@ export interface Api {
   makeVideo(job: VideoJob): Promise<string>;
   onVideoProgress(cb: (fraction: number) => void): () => void;
   cancelVideo(): Promise<void>;
+  /** Asks where to save (the main process owns the destination), then encodes. Resolves to null when the save dialog is cancelled. */
+  makeGif(job: GifJob): Promise<GifResult | null>;
+  /** Fraction 0..1 of the running GIF export. */
+  onGifProgress(cb: (fraction: number) => void): () => void;
+  cancelGif(): Promise<void>;
   revealInFolder(path: string): void;
   /**
    * Saves the project JSON. `sidecar` photos are written to `<project name> Photos/` next to it and their
@@ -140,6 +157,9 @@ const browserApi: Api = {
   makeVideo: unsupported('Making video'),
   onVideoProgress: () => () => {},
   cancelVideo: async () => {},
+  makeGif: unsupported('Making a GIF'),
+  onGifProgress: () => () => {},
+  cancelGif: async () => {},
   setDirty: () => {},
   revealInFolder: () => {},
   async saveProject(json, suggestedName) {

@@ -338,4 +338,4 @@ function cancel() {
 
 function isRunning() { return current !== null; }
 
-module.exports = { makeVideo, cancel, isRunning, buildArgs, encoderArgs, pickEncoder, listEncoders, probeJpegSize, validate };
+module.exports = { makeVideo, cancel, isRunning, buildArgs, encoderArgs, pickEncoder, listEncoders, probeJpegSize, validate, runFfmpeg, rmQuiet };

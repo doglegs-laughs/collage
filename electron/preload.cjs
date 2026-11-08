@@ -48,4 +48,11 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('video:progress', handler);
   },
   cancelVideo: () => invoke('video:cancel'),
+  makeGif: (job) => invoke('gif:make', job),
+  onGifProgress: (cb) => {
+    const handler = (_event, fraction) => cb(fraction);
+    ipcRenderer.on('gif:progress', handler);
+    return () => ipcRenderer.removeListener('gif:progress', handler);
+  },
+  cancelGif: () => invoke('gif:cancel'),
 });

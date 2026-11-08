@@ -6,11 +6,12 @@
 
 <p align="center"><img src="docs/screenshots/story-clean.jpg" alt="Story editor with a cover page" width="900"></p>
 
-Three tools in one app:
+Four tools in one app:
 
 - **Story:** turn a folder of photos into a finished multi-page post (like an Instagram carousel) in one click, then adjust any page. Save it as pictures or as a video with music.
 - **Collage:** combine photos into one picture.
 - **Borders:** add a white border, black border, mat, frame or polaroid look to many photos at once.
+- **GIF:** turn a few photos into a short animated GIF.
 
 It works without internet, and your photos never leave your computer. It's free.
 
@@ -130,6 +131,10 @@ Every change is one undo step and is saved with the story. With no edits, export
 <p><img src="docs/screenshots/borders.jpg" alt="Borders tab with a print mat finish" width="900"></p>
 
 Pick a finish (**White border, Black border, Print mat, Framed, Polaroid**), the border size, colour, canvas shape (Original, 1:1, 4:5, 9:16) and output size, then **Export all** to a folder. Each photo is saved as `<name>-border.jpg`, and existing files are never overwritten. Use **Review** above the photos to go through them full screen and keep or reject each one.
+
+## GIF
+
+Add photos, then click them in the order you want; the numbers show the order. The preview plays the animation as you change the settings. Choose how long each photo shows (0.1 to 2 seconds), whether to hold the first and last photo longer, loop forever or play once, **Boomerang** (forward, then back) and **Crossfade** between photos. Pick a shape (Original, 1:1, 4:5, 9:16, 16:9), **Fill** (crops each photo to the shape) or **Fit** (shows the whole photo on a background colour), and a width of 480, 720 or 1080 pixels. The panel shows how many frames and seconds it will be. Click **Export**, choose where to save, then **Show in Finder** in the message that appears shows you the file. The GIF is limited to 300 frames.
 
 ## Shortcuts
 
