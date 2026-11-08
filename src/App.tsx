@@ -6,13 +6,15 @@ import { ToastProvider } from './ui/Toast';
 import { CollageView } from './collage/CollageView';
 import { StoryView } from './story/StoryView';
 import { BordersView } from './borders/BordersView';
+import { GifView } from './gif/GifView';
 
-export type Mode = 'collage' | 'story' | 'borders';
+export type Mode = 'collage' | 'story' | 'borders' | 'gif';
 
 const TABS: { id: Mode; label: string }[] = [
   { id: 'collage', label: 'Collage' },
   { id: 'story', label: 'Story' },
   { id: 'borders', label: 'Borders' },
+  { id: 'gif', label: 'GIF' },
 ];
 
 function Brand() {
@@ -67,6 +69,7 @@ export function App() {
             <div className="mode-pane" hidden={mode !== 'collage'}><CollageView /></div>
             <div className="mode-pane" hidden={mode !== 'story'}><StoryView /></div>
             <div className="mode-pane" hidden={mode !== 'borders'}><BordersView /></div>
+            <div className="mode-pane" hidden={mode !== 'gif'}><GifView /></div>
           </main>
         </div>
       </PhotoLibraryProvider>

@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { atomicWrite, readImage, exists, writeSidecar } = require('./files.cjs');
 const video = require('./video.cjs');
+const gif = require('./gif.cjs');
 const store = require('./store.cjs');
 const { analyzeAudio } = require('./beats.cjs');
 const { createVideoCache, computeKey } = require('./video-cache.cjs');
@@ -316,6 +317,30 @@ function registerIpc() {
     videoRequest?.abort(new Error('Video export cancelled'));
     return video.cancel();
   });
+
+  // Returns { path, bytes }, or null when the user cancels the save dialog.
+  let gifRequest = null;
+  handle('gif:make', async (event, job) => {
+    if (gifRequest) throw new Error('A GIF export is already running');
+    const request = new AbortController();
+    gifRequest = request;
+    try {
+      // The destination always comes from the save dialog; a path supplied by the renderer is ignored.
+      const r = await dialog.showSaveDialog(win(), { defaultPath: typeof job?.suggestedName === 'string' && job.suggestedName ? path.basename(job.suggestedName) : 'animation.gif', filters: filterFor('GIF animation', ['gif']) });
+      if (r.canceled || !r.filePath) return null;
+      request.signal.throwIfAborted();
+      const sender = event.sender;
+      return await gif.makeGif({ ...job, output: r.filePath }, (fraction) => {
+        if (!sender.isDestroyed()) sender.send('gif:progress', fraction);
+      });
+    } finally {
+      if (gifRequest === request) gifRequest = null;
+    }
+  });
+  handle('gif:cancel', () => {
+    gifRequest?.abort(new Error('GIF export cancelled'));
+    return gif.cancel();
+  });
   on('app:set-dirty', (_e, value) => { dirty = value === true; if (!dirty) discardConfirmed = false; });
 }
 
@@ -342,10 +367,10 @@ app.on('before-quit', (event) => {
     });
     return;
   }
-  if (video.isRunning()) {
+  if (video.isRunning() || gif.isRunning()) {
     event.preventDefault();
     quitting = true;
-    video.cancel().catch(() => {}).finally(() => {
+    Promise.all([video.cancel(), gif.cancel()]).catch(() => {}).finally(() => {
       quitting = false;
       app.quit();
     });

@@ -468,3 +468,10 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 .tl-playhead { position: absolute; left: 0; top: 0; bottom: 0; width: 0; pointer-events: none; z-index: 4; will-change: transform; }
 .tl-playhead::before { content: ''; position: absolute; left: -0.75px; top: 0; bottom: 0; width: 1.5px; background: var(--tl-head); }
 .tl-playhead i { position: absolute; left: -6px; top: 0; width: 12px; height: 10px; background: var(--tl-head); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+
+/* gif */
+.gif-workspace { grid-template-columns: 330px minmax(0, 1fr) 300px; }
+.gif-settings { min-height: 0; }
+.gif-estimate { margin: 0; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.gif-transport { display: flex; justify-content: center; }
+.gif-canvas { max-width: 100%; max-height: 100%; width: auto; height: auto; background: #fff; box-shadow: var(--shadow-lg); border-radius: 4px; }
