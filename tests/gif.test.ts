@@ -83,9 +83,10 @@ describe.runIf(hasFfmpeg)('gif encode', () => {
     expect(seen.at(-1)).toBe(1);
     expect(fs.readdirSync(dir)).toEqual(['a.gif']);
     if (hasFfprobe) {
-      const j = JSON.parse(execFileSync(FFPROBE, ['-v', 'error', '-show_frames', '-show_entries', 'frame=pkt_duration_time,width,height', '-of', 'json', out]).toString());
+      // ffprobe 7 dropped pkt_duration_time in favour of duration_time.
+      const j = JSON.parse(execFileSync(FFPROBE, ['-v', 'error', '-show_frames', '-show_entries', 'frame=duration_time,pkt_duration_time,width,height', '-of', 'json', out]).toString());
       expect(j.frames).toHaveLength(3);
-      expect(j.frames.map((f: any) => Math.round(Number(f.pkt_duration_time) * 100))).toEqual([50, 20, 30]);
+      expect(j.frames.map((f: any) => Math.round(Number(f.duration_time ?? f.pkt_duration_time) * 100))).toEqual([50, 20, 30]);
       expect([j.frames[0].width, j.frames[0].height]).toEqual([64, 48]);
     }
   });
