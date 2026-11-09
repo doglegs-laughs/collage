@@ -94,6 +94,7 @@ export function GifView() {
           selected={selected}
           onToggle={toggle}
           onRemove={library.remove}
+          onReorder={library.move}
           onClearAll={library.clear}
           clearNote="GIFs already saved are not affected."
           onImport={() => void library.pick()}

@@ -68,7 +68,7 @@ In every tab you can drag photos from Finder anywhere onto the window to add the
 
 <p><img src="docs/screenshots/story-start.jpg" alt="Make story start screen" width="900"></p>
 
-1. Click the **Story** tab, then **Add photos** (or drag photos onto the window). Click a thumbnail to include or exclude it. Excluding a photo after the story is made takes it off its page, and the other photos on that page are rearranged (⌘Z undoes it). Double-click a thumbnail (or press Space) for a large preview. To decide which photos to keep, click **Review** to go through them full screen: **K** or **↑** keeps a photo, **X** or **↓** rejects it (it stays in your library, just not included), and **Esc** finishes.
+1. Click the **Story** tab, then **Add photos** (or drag photos onto the window). Click a thumbnail to include or exclude it. Drag photos in the left pane to put them in a different order (or press Option+← / Option+→ on a focused photo); the numbers follow, and stories you have already made are not changed. Excluding a photo after the story is made takes it off its page, and the other photos on that page are rearranged (⌘Z undoes it). Double-click a thumbnail (or press Space) for a large preview. To decide which photos to keep, click **Review** to go through them full screen: **K** or **↑** keeps a photo, **X** or **↓** rejects it (it stays in your library, just not included), and **Esc** finishes.
 2. Pick **Clean** or **Stylized**, optionally type a title and subtitle, and choose a page shape (4:5 suits Instagram).
 3. Click **Make story**. **Shuffle** regenerates the whole story with a different arrangement.
 

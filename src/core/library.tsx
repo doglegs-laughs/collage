@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import { importFromFiles, importFromPaths, releasePhoto, type ImportResult, type Photo } from './images';
 import { api, isDesktop } from '../api';
+import { moveById } from './order';
 import { useToast } from '../ui/Toast';
 
 export type PhotoLibrary = {
@@ -13,6 +14,8 @@ export type PhotoLibrary = {
   /** Puts already-imported photos back (e.g. when an undo brings them back). Ones already present are ignored. */
   adopt: (photos: Photo[]) => void;
   remove: (id: string) => void;
+  /** Moves a photo to index `to` of the library; the order is shared by every tab. */
+  move: (id: string, to: number) => void;
   /** Removes every photo and frees their cached bitmaps and URLs. */
   clear: () => void;
   get: (id: string) => Photo | undefined;
@@ -71,6 +74,7 @@ export function PhotoLibraryProvider({ children }: { children: ReactNode }) {
     releasePhoto(id);
     setPhotos((p) => p.filter((x) => x.id !== id));
   }, []);
+  const move = useCallback((id: string, to: number) => setPhotos((p) => moveById(p, id, to)), []);
   const adopt = useCallback((list: Photo[]) => { ingest({ photos: list, failed: [] }); }, [ingest]);
   const clear = useCallback(() => {
     for (const id of byId.current.keys()) releasePhoto(id);
@@ -79,6 +83,6 @@ export function PhotoLibraryProvider({ children }: { children: ReactNode }) {
   }, []);
   const get = useCallback((id: string) => byId.current.get(id), []);
 
-  const value = useMemo(() => ({ photos, addFiles, addPaths, pick, remove, adopt, clear, get }), [photos, addFiles, addPaths, pick, remove, adopt, clear, get]);
+  const value = useMemo(() => ({ photos, addFiles, addPaths, pick, remove, move, adopt, clear, get }), [photos, addFiles, addPaths, pick, remove, move, adopt, clear, get]);
   return <PhotoLibraryContext.Provider value={value}>{children}</PhotoLibraryContext.Provider>;
 }

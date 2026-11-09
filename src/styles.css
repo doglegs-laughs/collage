@@ -96,6 +96,10 @@ output { min-width: 56px; padding: 4px 8px; border-radius: 8px; background: var(
 .tray-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
 .tray-item { position: relative; aspect-ratio: 1; }
 .tray-pick { position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 12px; overflow: hidden; background: var(--placeholder); box-shadow: var(--shadow-sm); transition: transform .15s, box-shadow .15s; }
+.tray-item.drop-before::before, .tray-item.drop-after::after { content: ''; position: absolute; top: -2px; bottom: -2px; width: 4px; border-radius: 2px; background: var(--accent); z-index: 3; pointer-events: none; }
+.tray-item.drop-before::before { left: -6px; }
+.tray-item.drop-after::after { right: -6px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .tray-pick:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
 .tray-pick img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .15s; }
 .tray-pick.selected img { opacity: .6; }
