@@ -153,7 +153,7 @@ export function LayoutMode({ active }: { active: boolean }) {
       <aside className="sidebar story-tray">
         <div className="section">
           <PhotoTray
-            photos={lib.photos} selected={tray.selected} onToggle={tray.toggle} onRemove={lib.remove}
+            photos={lib.photos} selected={tray.selected} onToggle={tray.toggle} onRemove={lib.remove} onReorder={lib.move}
             onImport={() => void lib.pick()} onDropFiles={(f) => void lib.addFiles(f)} onSelectAll={tray.all} onSelectNone={tray.none}
           />
           <p className="hint">Selected photos fill the layout in the order you select them.</p>

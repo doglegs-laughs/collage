@@ -105,6 +105,7 @@ export function BordersView() {
           selected={batch.map((p) => p.id)}
           onToggle={toggle}
           onRemove={remove}
+          onReorder={library.move}
           onClearAll={() => { library.clear(); setDeselected(new Set()); }}
           clearNote="Borders already saved are not affected."
           onImport={() => void library.pick()}

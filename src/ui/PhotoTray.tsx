@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { getObjectUrl, getThumbnailUrl, isImageFile, type Photo } from '../core/images';
+import { dropIndex } from '../core/order';
 import { Button } from './Controls';
 
 export const PHOTO_DRAG_TYPE = 'application/x-collage-photo';
@@ -50,8 +51,15 @@ function gridColumns(picks: HTMLElement[]): number {
   return next < 0 ? Math.max(1, picks.length) : next;
 }
 
-function Thumb({ photo, order, onToggle, onRemove, onPreview, hoverEnabled }: {
-  photo: Photo; order: number; onToggle: () => void; onRemove: () => void; onPreview: () => void; hoverEnabled: boolean;
+type DropMark = { id: string; side: 'before' | 'after' };
+
+function Thumb({ photo, order, onToggle, onRemove, onPreview, onMove, onDragState, mark, hoverEnabled }: {
+  photo: Photo; order: number; onToggle: () => void; onRemove: () => void; onPreview: () => void;
+  /** Alt+arrow: move one place (-1 / +1); absent when the tray can't reorder. */
+  onMove?: (delta: number) => void;
+  onDragState: (dragging: string | null) => void;
+  mark: 'before' | 'after' | null;
+  hoverEnabled: boolean;
 }) {
   const url = usePhotoThumb(photo);
   const selected = order > 0;
@@ -64,6 +72,12 @@ function Thumb({ photo, order, onToggle, onRemove, onPreview, hoverEnabled }: {
 
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.key === ' ') { e.preventDefault(); cancelHover(); onPreview(); return; }
+    if (e.altKey && onMove && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault();
+      cancelHover();
+      onMove(e.key === 'ArrowRight' ? 1 : -1);
+      return;
+    }
     if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
     const picks = [...(e.currentTarget.closest('.tray-grid')?.querySelectorAll<HTMLButtonElement>('.tray-pick') ?? [])];
     const cols = gridColumns(picks);
@@ -73,7 +87,7 @@ function Thumb({ photo, order, onToggle, onRemove, onPreview, hoverEnabled }: {
   };
 
   return (
-    <div className="tray-item">
+    <div className={`tray-item ${mark ? `drop-${mark}` : ''}`} data-photo-id={photo.id}>
       <button
         type="button"
         className={`tray-pick ${selected ? 'selected' : ''}`}
@@ -81,7 +95,8 @@ function Thumb({ photo, order, onToggle, onRemove, onPreview, hoverEnabled }: {
         aria-pressed={selected}
         title={photo.name}
         draggable
-        onDragStart={(e) => { cancelHover(); e.dataTransfer.setData(PHOTO_DRAG_TYPE, photo.id); e.dataTransfer.effectAllowed = 'copy'; }}
+        onDragStart={(e) => { cancelHover(); e.dataTransfer.setData(PHOTO_DRAG_TYPE, photo.id); e.dataTransfer.effectAllowed = 'copyMove'; onDragState(photo.id); }}
+        onDragEnd={() => onDragState(null)}
         onClick={onToggle}
         onDoubleClick={() => { cancelHover(); onPreview(); }}
         onKeyDown={onKeyDown}
@@ -263,6 +278,8 @@ type Props = {
   selected: string[];
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
+  /** Moves a photo to this index of `photos` (drag or Alt+arrow in the tray). Omit to turn reordering off. */
+  onReorder?: (id: string, to: number) => void;
   onImport: () => void;
   onDropFiles: (files: File[]) => void;
   onSelectAll?: () => void;
@@ -275,13 +292,17 @@ type Props = {
   className?: string;
 };
 
-export function PhotoTray({ photos, selected, onToggle, onRemove, onImport, onDropFiles, onSelectAll, onSelectNone, onClearAll, clearNote, title = 'Photos', className = '' }: Props) {
+export function PhotoTray({ photos, selected, onToggle, onRemove, onReorder, onImport, onDropFiles, onSelectAll, onSelectNone, onClearAll, clearNote, title = 'Photos', className = '' }: Props) {
   const [over, setOver] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [review, setReview] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const restoreFocus = useRef<string | null>(null);
   const section = useRef<HTMLElement>(null);
+  const dragging = useRef<string | null>(null);
+  const [mark, setMark] = useState<DropMark | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+  const refocus = useRef<string | null>(null);
   const previewIndex = previewId ? photos.findIndex((p) => p.id === previewId) : -1;
   const open = previewIndex >= 0;
   useEffect(() => { if (previewId && previewIndex < 0) setPreviewId(null); }, [previewId, previewIndex]);
@@ -310,16 +331,73 @@ export function PhotoTray({ photos, selected, onToggle, onRemove, onImport, onDr
     onRemove(id);
     setPreviewId(neighbour ? neighbour.id : null);
   };
+  // A moved thumbnail may lose focus when its node is re-inserted; put it back.
+  useEffect(() => {
+    const id = refocus.current;
+    if (!id) return;
+    refocus.current = null;
+    [...(section.current?.querySelectorAll<HTMLElement>('.tray-pick') ?? [])].find((el) => el.dataset.photoId === id)?.focus();
+  }, [photos]);
+  const moveBy = (photo: Photo, delta: number) => {
+    const from = photos.findIndex((p) => p.id === photo.id);
+    const to = from + delta;
+    if (!onReorder || from < 0 || to < 0 || to >= photos.length) return;
+    refocus.current = photo.id;
+    onReorder(photo.id, to);
+    setAnnouncement(`Moved ${photo.name} to position ${to + 1} of ${photos.length}`);
+  };
+  const setDragging = (id: string | null) => { dragging.current = id; if (!id) setMark(null); };
+  /** The insertion gap under the pointer: before or after the hovered thumbnail, by which half it is over. */
+  const markAt = (e: DragEvent): DropMark | null => {
+    const item = (e.target as HTMLElement).closest<HTMLElement>('.tray-item');
+    if (!item?.dataset.photoId) return null;
+    const r = item.getBoundingClientRect();
+    return { id: item.dataset.photoId, side: e.clientX < r.left + r.width / 2 ? 'before' : 'after' };
+  };
+  /** Scrolls the pane while a drag is near its top or bottom edge (dragover repeats while the pointer is held still). */
+  const autoScroll = (e: DragEvent) => {
+    let el: HTMLElement | null = section.current;
+    while (el && !(el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const edge = 48;
+    if (e.clientY < r.top + edge) el.scrollTop -= 16;
+    else if (e.clientY > r.bottom - edge) el.scrollTop += 16;
+  };
+  const dropMove = (m: DropMark | null) => {
+    const id = dragging.current;
+    setDragging(null);
+    if (!m || !id || !onReorder) return;
+    const from = photos.findIndex((p) => p.id === id);
+    const at = photos.findIndex((p) => p.id === m.id);
+    if (from < 0 || at < 0) return;
+    const to = dropIndex(from, m.side === 'before' ? at : at + 1);
+    if (to === from) return;
+    onReorder(id, to);
+    setAnnouncement(`Moved ${photos[from].name} to position ${to + 1} of ${photos.length}`);
+  };
   const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
   return (
     <section
       ref={section}
       className={`tray ${over ? 'dropping' : ''} ${className}`}
       aria-label={title}
-      onDragOver={(e) => { if (hasFiles(e)) { e.preventDefault(); setOver(true); } }}
-      onDragLeave={(e) => { if (e.currentTarget === e.target) setOver(false); }}
+      onDragOver={(e) => {
+        if (hasFiles(e)) { e.preventDefault(); setOver(true); return; }
+        if (!dragging.current || !onReorder) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        autoScroll(e);
+        const m = markAt(e);
+        setMark((cur) => (cur?.id === m?.id && cur?.side === m?.side ? cur : m));
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setOver(false);
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setMark(null);
+      }}
       onDrop={(e) => {
         setOver(false);
+        if (dragging.current && onReorder && !hasFiles(e)) { e.preventDefault(); dropMove(markAt(e)); return; }
         if (!hasFiles(e)) return;
         e.preventDefault();
         const files = [...e.dataTransfer.files].filter(isImageFile);
@@ -353,10 +431,12 @@ export function PhotoTray({ photos, selected, onToggle, onRemove, onImport, onDr
       ) : (
         <div className="tray-grid">
           {photos.map((p) => (
-            <Thumb key={p.id} photo={p} order={selected.indexOf(p.id) + 1} onToggle={() => onToggle(p.id)} onRemove={() => onRemove(p.id)} onPreview={() => openPreview(p.id)} hoverEnabled={!open} />
+            <Thumb key={p.id} photo={p} order={selected.indexOf(p.id) + 1} onToggle={() => onToggle(p.id)} onRemove={() => onRemove(p.id)} onPreview={() => openPreview(p.id)}
+              onMove={onReorder ? (d) => moveBy(p, d) : undefined} onDragState={setDragging} mark={mark?.id === p.id ? mark.side : null} hoverEnabled={!open} />
           ))}
         </div>
       )}
+      <div className="sr-only" role="status" aria-live="polite">{announcement}</div>
       {open && (
         <Lightbox photos={photos} index={previewIndex} selected={selected} onToggle={onToggle} onRemove={removeFromPreview}
           onGo={(i) => setPreviewId(photos[i].id)} onClose={closePreview} review={review} />

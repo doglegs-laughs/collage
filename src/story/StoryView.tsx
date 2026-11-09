@@ -211,7 +211,7 @@ export function StoryView() {
       <aside className="sidebar story-tray">
         <div className="section">
           <PhotoTray
-            photos={lib.photos} selected={tray.selected} onToggle={toggleTray} onRemove={removeFromTray} onClearAll={clearTray}
+            photos={lib.photos} selected={tray.selected} onToggle={toggleTray} onRemove={removeFromTray} onClearAll={clearTray} onReorder={lib.move}
             clearNote="Photos used in the story become empty slots."
             onImport={() => void lib.pick()} onDropFiles={(f) => void lib.addFiles(f)} onSelectAll={tray.all} onSelectNone={tray.none}
           />
