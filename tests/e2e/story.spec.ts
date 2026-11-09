@@ -935,6 +935,42 @@ test('deselecting a photo in the tray takes it off its page; undo brings it back
   await expect(story().locator('.section-note').first()).toHaveText('2 of 7 selected');
   await undo();
   await expect(photoEls).toHaveCount(3);
+
+  // Undo does not touch the tray selection, so the photo is still unticked while its page shows it: tick it again, then try the round trip.
+  await story().locator('.tray-pick').nth(2).click();
+  await expect(photoEls).toHaveCount(3);
+  // Selecting it again puts it back (and a photo that was never in the story gets a page of its own).
+  await story().locator('.tray-pick').nth(2).click();
+  await expect(photoEls).toHaveCount(2);
+  await story().locator('.tray-pick').nth(2).click();
+  await expect(photoEls).toHaveCount(3);
+  await expect(story().getByTestId('strip-page')).toHaveCount(1);
+  await expect(page.locator('.toast').last()).toHaveText('Added back to page 1');
+  await story().locator('.tray-pick').nth(1).click();
+  await expect(story().getByTestId('strip-page')).toHaveCount(2);
+  await expect(page.locator('.toast').last()).toHaveText('Added as page 2');
+  await undo();
+  await expect(story().getByTestId('strip-page')).toHaveCount(1);
+});
+
+test('opening a story replaces the photo pane with just the story photos', async () => {
+  test.setTimeout(180_000);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'story-out-'));
+  const project = path.join(folder, 'subset.collage');
+  await stubDialogs({ photos, folder, video: project });
+  await page.getByRole('button', { name: 'Add photos' }).click();
+  await expect(story().locator('.tray-item')).toHaveCount(7, { timeout: 60_000 });
+  await story().getByRole('button', { name: 'None', exact: true }).click();
+  for (const i of [0, 2, 6]) await story().locator('.tray-pick').nth(i).click();
+  await story().getByTestId('make-story').click();
+  await expect(story().getByTestId('page-strip')).toBeVisible({ timeout: 60_000 });
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(() => fs.existsSync(project)).toBe(true);
+  // The four photos that were not in the story are in the library, but opening it leaves just its own.
+  await stubDialogs({ photos: [project], folder, video: project });
+  await page.getByTestId('story-open').click();
+  await expect(story().locator('.tray-item')).toHaveCount(3, { timeout: 60_000 });
+  await expect(story().locator('.section-note').first()).toHaveText('3 of 3 selected');
 });
 
 test('photos dropped anywhere on the window are added; non-photos are refused', async () => {

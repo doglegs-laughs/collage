@@ -26,12 +26,13 @@ const optionOf = (t: Template): LayoutTarget => ({ arrangement: t.id, finish: t.
 
 const ratioOf = (e: PhotoEl, A: number) => (e.w * A) / Math.max(1e-9, e.h);
 
-/** No template takes exactly the remaining photos: lay them out with the autofill instead (no empty slots). */
-function relayAll(story: Story, without: Story, start: number, end: number, srcIndex: number, seed: number): Story {
+/** No template takes exactly the photos: lay them out with the autofill instead (no empty slots). `extra` is one more photo to show after the others. */
+function relayAll(story: Story, without: Story, start: number, end: number, srcIndex: number, seed: number, extra?: Photo): Story {
   const remaining = without.pages.slice(start, end)
     .flatMap((p) => p.elements.filter((e): e is PhotoEl => e.kind === 'photo' && !!e.photoId))
     .map((e) => story.photos.find((p) => p.id === e.photoId))
     .filter((p): p is Photo => !!p);
+  if (extra) remaining.push(extra);
   const lead = story.pages[start];
   const fresh = makeStory(remaining, { style: story.style, aspect: story.aspect, seed });
   if (!fresh.length) return without;
@@ -44,6 +45,19 @@ function relayAll(story: Story, without: Story, start: number, end: number, srcI
     return { ...base, id: lead.id, elements: [...p.elements, ...texts.map((t, k): El => ({ ...t, z: top + 1 + k }))] };
   });
   return { ...without, pages: [...without.pages.slice(0, start), ...pages, ...without.pages.slice(end)] };
+}
+
+/** A page of its own for one photo in the style's single layout. `prior` is a frame the photo had: its crop is kept when the new frame is about the same shape. */
+function singlePage(story: Story, photo: Photo, seed: number, from: Page, prior?: PhotoEl): Page | null {
+  const t = getTemplate(singleTemplateFor(story.style, photo))!;
+  const res = t.layout(story.aspect, [photo], { seed });
+  const base = res.pages[0].find((e): e is PhotoEl => e.kind === 'photo');
+  if (!base) return null;
+  const A = aspectRatio(story.aspect);
+  const keep = !!prior && Math.abs(ratioOf(base, A) / ratioOf(prior, A) - 1) <= 0.05;
+  const els: El[] = res.pages[0].map((e) => (e === base ? { ...base, crop: keep ? { ...prior!.crop } : { ...DEFAULT_CROP } } : e));
+  const ownBg = res.backgrounds[0] && res.backgrounds[0].toLowerCase() !== '#ffffff' ? res.backgrounds[0] : undefined;
+  return { id: newId(), templateId: t.id, ...(t.finish ? { finish: t.finish } : {}), background: ownBg ?? from.background, elements: els, duration: from.duration };
 }
 
 /** Drop one photo element from its page and lay the rest of its spread group out again (user text stays). */
@@ -89,6 +103,49 @@ export function removePhotoFromPages(story: Story, photoId: string): Story {
   return s;
 }
 
+/** Where a photo sat in the story: the first page showing it, and that page's index. */
+export type PhotoSpot = { pageId: string; index: number };
+
+export function photoSpot(story: Story, photoId: string): PhotoSpot | null {
+  const index = story.pages.findIndex((p) => p.elements.some((e) => e.kind === 'photo' && e.photoId === photoId));
+  return index < 0 ? null : { pageId: story.pages[index].id, index };
+}
+
+/** The inverse of relayWithout: add one photo to the page's spread group and lay the group out again with one more slot (user text stays). */
+function relayWith(story: Story, pageIndex: number, photo: Photo, seed: number): Story {
+  const { start, end } = groupOf(story, pageIndex);
+  const n = story.pages.slice(start, end).flatMap((p) => p.elements.filter((e) => e.kind === 'photo')).length;
+  const all = layoutOptions(story, pageIndex).filter((o) => o.arrangement !== FULL_EACH && o.pages === 1 && o.slots === n + 1);
+  const fam = familyOf(story.pages[pageIndex].templateId);
+  const option = (fam && all.find((o) => familyOf(o.arrangement) === fam)) || all[0];
+  return option
+    ? applyLayout(story, pageIndex, option, { seed, extraPhotoIds: [photo.id] }).story
+    : relayAll(story, story, start, end, pageIndex, seed, photo);
+}
+
+/**
+ * Put a photo that no page shows into the story. With the `spot` it was taken from: back onto that page (laid out again with
+ * one more photo, or into its emptied slot), or, when that page is gone, onto a new page at the same position. Without a spot,
+ * a new page at the end. `back` says whether the old spot was used. Returns the story and the page to show.
+ */
+export function addPhotoToStory(story: Story, photo: Photo, spot?: PhotoSpot | null, seed?: number): { story: Story; pageIndex: number; back: boolean } {
+  const s = story.photos.some((p) => p.id === photo.id) ? story : { ...story, photos: [...story.photos, photo] };
+  const at = spot ? s.pages.findIndex((p) => p.id === spot.pageId) : -1;
+  if (spot && at >= 0) {
+    const { start, end } = groupOf(s, at);
+    const slots = s.pages.slice(start, end).flatMap((p, k) => p.elements.filter((e): e is PhotoEl => e.kind === 'photo').map((e) => ({ e, page: start + k })));
+    const empty = slots.find((x) => !x.e.photoId);
+    if (empty) return { story: updateElements(s, empty.page, [empty.e.id], (e) => ({ ...e, photoId: photo.id }) as El), pageIndex: empty.page, back: true };
+    if (slots.length) return { story: relayWith(s, at, photo, seed ?? pageSeed(s, at)), pageIndex: at, back: true };
+  }
+  const where = spot ? Math.max(0, Math.min(spot.index, s.pages.length)) : s.pages.length;
+  const from = s.pages[Math.min(where, s.pages.length - 1)] ?? s.pages[s.pages.length - 1];
+  const page = singlePage(s, photo, seed ?? pageSeed(s, Math.max(0, s.pages.length - 1)), from);
+  if (!page) return { story, pageIndex: Math.max(0, story.pages.length - 1), back: false };
+  const next = addPage(s, page, where);
+  return { story: next, pageIndex: next.pages.findIndex((p) => p.id === page.id), back: !!spot };
+}
+
 /** True when moveToOwnPage would do something for this element. */
 export function canMoveToOwnPage(story: Story, pageIndex: number, elementId: string): boolean {
   return moveToOwnPage(story, pageIndex, elementId) !== null;
@@ -115,7 +172,6 @@ export function moveToOwnPage(story: Story, pageIndex: number, elementId: string
   if (groupPhotos.filter((e) => e.photoId).length < 2) return null;
 
   const seed = opts.seed ?? pageSeed(story, pageIndex);
-  const A = aspectRatio(story.aspect);
   const source = story.pages[srcIndex];
 
   // 1. Remaining photos on the source page(s).
@@ -123,14 +179,8 @@ export function moveToOwnPage(story: Story, pageIndex: number, elementId: string
   const delta = relaid.pages.length - story.pages.length;
 
   // 2. The new page.
-  const t = getTemplate(singleTemplateFor(story.style, photo))!;
-  const res = t.layout(story.aspect, [photo], { seed });
-  const base = res.pages[0].find((e): e is PhotoEl => e.kind === 'photo');
-  if (!base) return null;
-  const keep = Math.abs(ratioOf(base, A) / ratioOf(moved, A) - 1) <= 0.05;
-  const els: El[] = res.pages[0].map((e) => (e === base ? { ...base, crop: keep ? { ...moved!.crop } : { ...DEFAULT_CROP } } : e));
-  const ownBg = res.backgrounds[0] && res.backgrounds[0].toLowerCase() !== '#ffffff' ? res.backgrounds[0] : undefined;
-  const page: Page = { id: newId(), templateId: t.id, ...(t.finish ? { finish: t.finish } : {}), background: ownBg ?? source.background, elements: els, duration: source.duration };
+  const page = singlePage(story, photo, seed, source, moved);
+  if (!page) return null;
 
   // 3. Where it goes (positions are in the original numbering; the relaid group may have a different length).
   let at = opts.insertAt === undefined ? end : Math.max(0, Math.min(opts.insertAt, story.pages.length));

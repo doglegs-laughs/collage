@@ -37,7 +37,7 @@ export function useTraySelection(photos: Photo[], { keepLibraryOrder = false } =
     for (const id of fresh) known.current.add(id);
     setSelected((s) => {
       const kept = s.filter((id) => present.has(id));
-      return fresh.length || kept.length !== s.length ? [...kept, ...fresh] : s;
+      return fresh.length || kept.length !== s.length ? [...kept, ...fresh.filter((id) => !kept.includes(id))] : s;
     });
   }, [photos]);
   const sortToLib = useCallback(() => setSelected((s) => sortToLibrary(s, photos)), [photos]);
@@ -52,5 +52,5 @@ export function useTraySelection(photos: Photo[], { keepLibraryOrder = false } =
   }), [photos, keepLibraryOrder]);
   const all = useCallback(() => setSelected(photos.map((p) => p.id)), [photos]);
   const none = useCallback(() => setSelected([]), []);
-  return { selected, toggle, all, none, sortToLibrary: sortToLib };
+  return { selected, set: setSelected, toggle, all, none, sortToLibrary: sortToLib };
 }
