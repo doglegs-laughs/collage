@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { moveToOwnPage, removePhotoFromPages } from '../src/story/split';
+import { addPhotoToStory, moveToOwnPage, photoSpot, removePhotoFromPages } from '../src/story/split';
 import { getTemplate } from '../src/story/templates';
 import { defaultTextEl, emptyStory, type Page, type PhotoEl, type Story } from '../src/story/model';
 import { photoIdsOf } from './story-helpers';
@@ -143,5 +143,64 @@ describe('removePhotoFromPages', () => {
   it('leaves a story that does not show the photo unchanged', () => {
     const s = storyWith('stack-2', [L('a'), L('b')]);
     expect(removePhotoFromPages(s, 'z')).toBe(s);
+  });
+});
+
+describe('addPhotoToStory', () => {
+  it('stack-2 plus a photo becomes stack-3 on the same page, user text kept', () => {
+    const s = storyWith('stack-2', [L('a'), L('b')]);
+    s.photos.push(L('c'));
+    const text = defaultTextEl({ text: 'Keep me' });
+    const withText = { ...s, pages: [{ ...s.pages[0], elements: [...s.pages[0].elements, text] }] };
+    const r = addPhotoToStory(withText, L('c'), { pageId: 'pg0', index: 0 });
+    expect(r).toMatchObject({ pageIndex: 0, back: true });
+    expect(r.story.pages).toHaveLength(1);
+    expect(r.story.pages[0]).toMatchObject({ id: 'pg0', templateId: 'stack-3', duration: 5 });
+    expect(all(r.story)).toEqual(['a', 'b', 'c']);
+    expect(r.story.pages[0].elements.some((e) => e.kind === 'text' && e.text === 'Keep me')).toBe(true);
+  });
+  it('a single page plus a photo becomes a pair', () => {
+    const s = storyWith('inset-single', [P('a')]);
+    const r = addPhotoToStory(s, P('b'), { pageId: 'pg0', index: 0 });
+    expect(getTemplate(r.story.pages[0].templateId)!.slots).toBe(2);
+    expect(all(r.story)).toEqual(['a', 'b']);
+    expect(r.story.photos.map((p) => p.id)).toEqual(['a', 'b']);
+  });
+  it('takes a photo off and puts it back on the same page', () => {
+    const s = storyWith('stack-3', [L('a'), L('b'), L('c')]);
+    const r = addPhotoToStory(removePhotoFromPages(s, 'b'), L('b'), photoSpot(s, 'b'));
+    expect(r.story.pages).toHaveLength(1);
+    expect(r.story.pages[0].templateId).toBe('stack-3');
+    expect(all(r.story)).toEqual(['a', 'b', 'c']);
+  });
+  it('a deleted page comes back as a single page at its old position', () => {
+    const single = storyWith('inset-single', [L('a')]).pages[0];
+    const last = storyWith('inset-single', [L('d')]).pages[0];
+    const s = storyWith('stack-2', [L('b'), L('c')], [{ ...single, id: 'solo' }, { ...last, id: 'last' }]);
+    const spot = photoSpot(s, 'a')!;
+    expect(spot).toEqual({ pageId: 'solo', index: 1 });
+    const gone = removePhotoFromPages(s, 'a');
+    expect(gone.pages.map((p) => p.id)).toEqual(['pg0', 'last']);
+    const r = addPhotoToStory(gone, L('a'), spot);
+    expect(r).toMatchObject({ pageIndex: 1, back: true });
+    expect(r.story.pages).toHaveLength(3);
+    expect(photoIdsOf(r.story.pages[1].elements)).toEqual(['a']);
+    expect(r.story.pages[2].id).toBe('last');
+    expect(r.story.photos.map((p) => p.id)).toContain('a');
+  });
+  it('refills the emptied slot on a title page', () => {
+    const s = storyWith('inset-single', [L('a')]);
+    s.pages[0].elements.push(defaultTextEl({ text: 'Title', role: 'title' }));
+    const r = addPhotoToStory(removePhotoFromPages(s, 'a'), L('a'), photoSpot(s, 'a'));
+    expect(r.story.pages).toHaveLength(1);
+    expect(firstPhoto(r.story).photoId).toBe('a');
+  });
+  it('a photo never in the story is a new page at the end', () => {
+    const s = storyWith('stack-2', [L('a'), L('b')]);
+    const r = addPhotoToStory(s, L('z'));
+    expect(r).toMatchObject({ pageIndex: 1, back: false });
+    expect(r.story.pages).toHaveLength(2);
+    expect(photoIdsOf(r.story.pages[1].elements)).toEqual(['z']);
+    expect(r.story.photos.map((p) => p.id)).toEqual(['a', 'b', 'z']);
   });
 });

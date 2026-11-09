@@ -11,7 +11,7 @@ import { useToast } from '../ui/Toast';
 import { useVisible } from '../collage/useVisible';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { DEFAULT_CROP } from '../core/geometry';
-import { moveToOwnPage, removePhotoFromPages } from './split';
+import { addPhotoToStory, moveToOwnPage, photoSpot, removePhotoFromPages, type PhotoSpot } from './split';
 import { ElementInspector } from './ElementInspector';
 import { ExportStatus, ImagesDialog, VideoDialog } from './ExportDialogs';
 import { LayoutControl } from './LayoutControl';
@@ -49,7 +49,8 @@ export function StoryView() {
   const dirtyRef = useRef(st.dirty);
   dirtyRef.current = st.dirty;
   const isDirty = useCallback(() => dirtyRef.current, []);
-  const project = useProject(getStory, lib, useCallback((s: Story) => { st.load(s); ed.goTo(0); }, [st.load, ed.goTo]), { isDirty, onSaved: st.markSaved }); // eslint-disable-line react-hooks/exhaustive-deps
+  const spots = useRef(new Map<string, PhotoSpot>());
+  const project = useProject(getStory, lib, useCallback((s: Story) => { st.load(s); ed.goTo(0); tray.set(s.photos.map((p) => p.id)); spots.current.clear(); }, [st.load, ed.goTo, tray.set]), { isDirty, onSaved: st.markSaved }); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api.setDirty(st.dirty); }, [st.dirty]);
   usePasteImages(visible, (files) => void lib.addFiles(files));
   const fileDrag = useWindowFileDrop(visible, (files) => void lib.addFiles(files));
@@ -122,9 +123,28 @@ export function StoryView() {
     const [photo] = await lib.pick();
     if (photo) ed.replaceSelectedPhoto(photo);
   };
-  // Deselecting a photo the story shows takes it off those pages (one undo step); selecting only marks it for Make story.
+  // Deselecting a photo the story shows takes it off those pages and selecting it puts it back (each one undo step).
+  // Where a deselected photo was is remembered so it returns to the same page, or the same position if that page is gone.
   const toggleTray = (id: string) => {
-    if (tray.selected.includes(id) && photoIdsInUse(st.live.current).has(id)) st.mutate((s) => removePhotoFromPages(s, id));
+    const live = st.live.current;
+    const shown = photoIdsInUse(live).has(id);
+    if (tray.selected.includes(id)) {
+      if (shown) {
+        const spot = photoSpot(live, id);
+        if (spot) spots.current.set(id, spot);
+        st.mutate((s) => removePhotoFromPages(s, id));
+      }
+    } else if (!shown && live.pages.length > 0) {
+      const photo = lib.get(id);
+      if (photo) {
+        const spot = spots.current.get(id) ?? null;
+        spots.current.delete(id);
+        const r = addPhotoToStory(live, photo, spot);
+        st.mutate(() => r.story);
+        ed.goTo(r.pageIndex);
+        toast(r.back ? `Added back to page ${r.pageIndex + 1}` : `Added as page ${r.pageIndex + 1}`, 'success');
+      }
+    }
     tray.toggle(id);
   };
   const removeFromTray = (id: string) => {

@@ -9,6 +9,8 @@ export type PhotoLibrary = {
   /** Imports files, de-duplicating by content. Resolves to the photos for these inputs (including ones already present). */
   addFiles: (files: File[]) => Promise<Photo[]>;
   addPaths: (paths: string[]) => Promise<Photo[]>;
+  /** Makes the library exactly the photos at these paths, in this order: the others are removed and their bitmaps and URLs freed. Resolves to the photos found. */
+  replacePaths: (paths: string[]) => Promise<Photo[]>;
   /** Opens the native picker (or a file input in a browser) and imports the choice. */
   pick: () => Promise<Photo[]>;
   /** Puts already-imported photos back (e.g. when an undo brings them back). Ones already present are ignored. */
@@ -34,6 +36,15 @@ export function PhotoLibraryProvider({ children }: { children: ReactNode }) {
   const byId = useRef(new Map<string, Photo>());
   const toast = useToast();
 
+  const reportFailed = useCallback(
+    (result: ImportResult) => {
+      if (!result.failed.length) return;
+      const [first] = result.failed;
+      toast(result.failed.length === 1 ? `${first.name}: ${first.error}` : `${result.failed.length} photos could not be opened (${first.name}: ${first.error})`, 'error');
+    },
+    [toast],
+  );
+
   const ingest = useCallback(
     (result: ImportResult): Photo[] => {
       const out: Photo[] = [];
@@ -48,17 +59,24 @@ export function PhotoLibraryProvider({ children }: { children: ReactNode }) {
         }
       }
       if (fresh.length) setPhotos((p) => [...p, ...fresh]);
-      if (result.failed.length) {
-        const [first] = result.failed;
-        toast(result.failed.length === 1 ? `${first.name}: ${first.error}` : `${result.failed.length} photos could not be opened (${first.name}: ${first.error})`, 'error');
-      }
+      reportFailed(result);
       return out;
     },
-    [toast],
+    [reportFailed],
   );
 
   const addFiles = useCallback((files: File[]) => importFromFiles(files).then(ingest), [ingest]);
   const addPaths = useCallback((paths: string[]) => importFromPaths(paths).then(ingest), [ingest]);
+  const replacePaths = useCallback(async (paths: string[]) => {
+    const result = paths.length ? await importFromPaths(paths) : { photos: [], failed: [] };
+    const next = new Map<string, Photo>();
+    for (const photo of result.photos) if (!next.has(photo.id)) next.set(photo.id, byId.current.get(photo.id) ?? photo);
+    for (const id of [...byId.current.keys()]) if (!next.has(id)) releasePhoto(id);
+    byId.current = next;
+    setPhotos([...next.values()]);
+    reportFailed(result);
+    return [...next.values()];
+  }, [reportFailed]);
   const pick = useCallback(async () => {
     if (isDesktop()) return addPaths(await api.openImages());
     const files = await new Promise<File[]>((resolve) => {
@@ -83,6 +101,6 @@ export function PhotoLibraryProvider({ children }: { children: ReactNode }) {
   }, []);
   const get = useCallback((id: string) => byId.current.get(id), []);
 
-  const value = useMemo(() => ({ photos, addFiles, addPaths, pick, remove, move, adopt, clear, get }), [photos, addFiles, addPaths, pick, remove, move, adopt, clear, get]);
+  const value = useMemo(() => ({ photos, addFiles, addPaths, replacePaths, pick, remove, move, adopt, clear, get }), [photos, addFiles, addPaths, replacePaths, pick, remove, move, adopt, clear, get]);
   return <PhotoLibraryContext.Provider value={value}>{children}</PhotoLibraryContext.Provider>;
 }
